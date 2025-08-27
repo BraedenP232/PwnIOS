@@ -1,8 +1,8 @@
-# PwnIOS: Advanced Pwnagotchi Companion for iOS
+# Pwnagotchi Companion: Advanced Pwnagotchi Companion for iOS
 
 ## Overview
 
-**PwnIOS** is a sophisticated iOS companion app that provides real-time monitoring and control of your Pwnagotchi device. Using advanced WebSocket technology with intelligent reconnection, message queuing, and health monitoring, PwnIOS delivers a seamless experience for managing your Pwnagotchi from your iPhone or iPad.
+**Pwnagotchi Companion** is a sophisticated iOS companion app that provides real-time monitoring and control of your Pwnagotchi device. Using advanced WebSocket technology with intelligent reconnection, message queuing, and health monitoring, Pwnagotchi Companion delivers a seamless experience for managing your Pwnagotchi from your iPhone or iPad.
 
 ---
 
@@ -87,7 +87,7 @@ Add the custom plugin repository to your `/etc/pwnagotchi/config.toml`:
 
 ```toml
 main.custom_plugin_repos = [
-    "https://github.com/Duedz/pwnios-plugin/archive/main.zip",
+    "https://github.com/BraedenP232/pwnios/archive/main.zip",
 ]
 ```
 
@@ -97,7 +97,7 @@ main.custom_plugin_repos = [
 # Update plugin repositories
 sudo pwnagotchi plugins update
 
-# Install PwnIOS plugin
+# Install Pwnagotchi Companion plugin
 sudo pwnagotchi plugins install pwnios
 ```
 
@@ -128,14 +128,14 @@ sudo systemctl restart pwnagotchi
 ## 📲 iOS App Installation
 
 ### Option 1: App Store (Coming Soon)
-> 📱 The PwnIOS app will be available on the App Store soon!
+> 📱 The Pwnagotchi Companion app will be available on the App Store soon!
 
 ## 💡 Usage Guide
 
 ### Initial Setup
 1. **Network Connection**: Connect your iOS device to the Pwnagotchi via [Bluetooth Tethering](https://github.com/jayofelony/pwnagotchi/wiki/Step-2-Connecting)
 2. **Verify Connection**: Verify the Bluetooth connection and possibly restart Pwnagotchi
-3. **Connection**: PwnIOS will present *Live* when the connection is established
+3. **Connection**: Pwnagotchi Companion will present *Live* when the connection is established
 
 ### Navigation
 - **Dashboard**: Main view with live statistics and face display
@@ -213,8 +213,8 @@ The app includes comprehensive diagnostic tools:
 ### Community Resources
 - 💬 **Discord Server**: [Unofficial Pwnagotchi Community](https://discord.gg/VRwTWUGaXb)
 - 📖 **Documentation**: [Official Pwnagotchi Docs](https://pwnagotchi.ai)
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BraedenP232/PwnIOS/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/BraedenP232/PwnIOS/discussions)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BraedenP232/PwnagotchiCompanion/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/BraedenP232/PwnagotchiCompanion/discussions)
 
 ### Getting Help
 1. **Check Documentation**: Most common issues are covered here
@@ -269,7 +269,7 @@ We welcome contributions from the community! Here's how you can help:
 
 ## 📄 License
 
-This project is licensed under the **GPL-3.0 License** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ### Third-Party Libraries
 - SwiftUI framework (Apple)
