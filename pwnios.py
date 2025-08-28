@@ -562,7 +562,10 @@ class PwnIOS(plugins.Plugin):
                     stats['accessPoints'] = len(aps) if aps else 0
 
                 if hasattr(self.agent, 'mode'):
-                    stats['mode'] = str(self.agent.mode).upper()
+                    if self.agent.mode == 'manual':
+                        stats['mode'] = "MANUAL"
+                    else:
+                        stats['mode'] = "AUTO"
                 elif hasattr(self.agent, '_mode'):
                     stats['mode'] = str(self.agent._mode).upper()
 
@@ -750,12 +753,49 @@ class PwnIOS(plugins.Plugin):
         return None
     
     def on_handshake(self, agent, filename, access_point, client_station):
+        # Save GPS coordinates if available
+        if self.gps_data and self.gps_enabled:
+            logging.info("Location Data:")
+            logging.info(f"Latitude: {self.gps_data['latitude']}")
+            logging.info(f"Longitude: {self.gps_data['longitude']}")
+            logging.info(f"Accuracy: {self.gps_data['accuracy']}")
+            
+            gps_filename = filename.replace(".pcap", ".gps.json")
+            # avoid 0.000... measurements
+            if all([self.gps_data.get("latitude"), self.gps_data.get("longitude")]):
+                logging.info(f"saving GPS to {gps_filename} ({self.gps_data})")
+                try:
+                    gps_export = {
+                        "Latitude": self.gps_data['latitude'],
+                        "Longitude": self.gps_data['longitude'],
+                        "Accuracy": self.gps_data.get('accuracy', 0),
+                        "Timestamp": self.gps_data.get('last_update', datetime.now().isoformat())
+                    }
+                    with open(gps_filename, "w+t") as fp:
+                        json.dump(gps_export, fp)
+                except Exception as e:
+                    logging.error(f"[PwnIOS] Error saving GPS data: {e}")
+            else:
+                logging.info("[PwnIOS] not saving GPS. Couldn't find location.")
+        else:
+            logging.info("[PwnIOS] No GPS data available for handshake.")
+        
+        # Create handshake data for broadcasting
         handshake_data = {
             'filename': str(filename),
             'access_point': str(access_point),
             'client_station': str(client_station),
             'timestamp': datetime.now().isoformat()
         }
+        
+        # Add GPS data to handshake if available
+        if self.gps_data and self.gps_enabled:
+            handshake_data['gps'] = {
+                'latitude': self.gps_data['latitude'],
+                'longitude': self.gps_data['longitude'],
+                'accuracy': self.gps_data.get('accuracy', 0)
+            }
+        
         face, status = self._get_current_face_and_status()
         self.queue_message({
             "type": "handshake", 
