@@ -19,6 +19,7 @@
 - **Screen Mirroring**: Direct display view of your Pwnagotchi's actual screen
 - **Dual View Modes**: Switch between face view and full screen display
 - **Automatic Refresh**: Configurable refresh intervals for optimal performance
+- **Custom Face Capabilities**: Compatible with custom faces via custom-faces-switcher
 
 ### 🌐 **Advanced Connectivity**
 - **Intelligent WebSocket Management**: Auto-reconnection with exponential backoff
@@ -39,6 +40,12 @@
 - **Channel Information**: Current operating channel and hop detection
 - **Network Statistics**: Comprehensive WiFi environment analysis
 
+---
+### What's new? Version 1.0.2
+- **Handshake GPS** On_Handshake() now saves a .gps.json version alongside .pcap with gps coords if available.
+- **Improved Instructions** Combed through the current *Bluetooth Setup Guide* and *FAQ* within **Pwnagotchi Companion** app to explain things more diligently and it's easier to read.
+- **No Haptic** Disabled *Haptic Feedback Toggle* for now as haptic engine was not running consistantly throughout multiple views.
+- **Layout Fixing** Fixed some places where text was getting cut off so I allowed it to wrap.
 ---
 
 ## 🏗️ Architecture Highlights
@@ -81,7 +88,18 @@ enum ConnectionState {
 
 ## 🚀 Installation
 
-### 1. Pwnagotchi Plugin Setup
+### 1a. Manual Pwnagotchi Plugin Setup
+
+Navigate to your custom plugins directory:
+`cd ~/custom-plugins/` # Or wherever you have set yours in config.toml
+
+### 2a.
+Create pwnios.py:
+`sudo nano pwnios.py`
+Paste contents of pwnios.py [plugin](https://github.com/BraedenP232/PwnIOS/blob/main/pwnios.py)
+
+
+### 1b. Repository Pwnagotchi Plugin Setup
 
 Add the custom plugin repository to your `/etc/pwnagotchi/config.toml`:
 
@@ -91,7 +109,7 @@ main.custom_plugin_repos = [
 ]
 ```
 
-### 2. Install the Plugin
+### 2b. Install the Plugin
 
 ```bash
 # Update plugin repositories
@@ -117,17 +135,17 @@ main.plugins.pwnios.port = 8082                 # WebSocket server port
 # main.plugins.pwnios.gps_log_path = "/tmp/pwnagotchi_gps.log"  # GPS log location
 ```
 
-### 4. Restart Pwnagotchi
+### 4. Restart Pwnagotchi and View Logs
 
 ```bash
-sudo systemctl restart pwnagotchi
+pwnkill && pwnlog
 ```
 
 ---
 
 ## 📲 iOS App Installation
 
-### Option 1: App Store (Coming Soon)
+### Option 1: App Store
 > 📱 The Pwnagotchi Companion app will be available on the App Store soon!
 
 ## 💡 Usage Guide
@@ -236,6 +254,7 @@ The app includes comprehensive diagnostic tools:
 
 ### Long-term Goals
 - **macOS Version**: Full-featured macOS companion app
+- **Multi-Platform Version**: Potentially a release of the app on most platforms built with [Expo](https://expo.dev)
 - **Automation**: Integration with iOS Shortcuts and HomeKit
 - **Cloud Services**: Optional cloud backup and sync
 - **Advanced Mapping**: GPS tracking with map visualization
