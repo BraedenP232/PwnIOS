@@ -28,22 +28,37 @@ from pwnagotchi.ui.view import BLACK
 # main.plugins.pwnios.gps_log_path = /path/to/gps.log
 
 # Import PiSugar module dynamically to avoid hard dependency errors if not present
+PISUGAR_AVAILABLE = False
+pisugarx = None
 try:
-    PISUGARX_PATH = "/home/pi/.pwn/lib/python3.11/site-packages/pwnagotchi/plugins/default/pisugarx.py"
-    spec = importlib.util.spec_from_file_location("pisugarx", PISUGARX_PATH)
-    pisugarx = importlib.util.module_from_spec(spec)
-    sys.modules["pisugarx"] = pisugarx
-    spec.loader.exec_module(pisugarx)
+    # 1) Try normal module import first
+    pisugarx = importlib.import_module("pwnagotchi.plugins.default.pisugarx")
     PISUGAR_AVAILABLE = True
-except Exception as e:
-    logging.warning(f"[PwnIOS] PiSugarX plugin not found or could not be loaded: {e}. Battery info will be unavailable.")
-    PISUGAR_AVAILABLE = False
-    class MockPiSugarServer:
-        @property
-        def battery_level(self): return 0.0
-        @property
-        def battery_charging(self): return False
-    pisugarx = MockPiSugarServer() # Provide a mock object if not available
+except Exception as e1:
+    try:
+        # 2) Fallback: path-based import (older/custom images)
+        PISUGARX_PATH = "/home/pi/.pwn/lib/python3.11/site-packages/pwnagotchi/plugins/default/pisugarx.py"
+        spec = importlib.util.spec_from_file_location("pisugarx", PISUGARX_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["pisugarx"] = mod
+        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+        pisugarx = mod
+        PISUGAR_AVAILABLE = True
+    except Exception as e2:
+        logging.warning(
+            f"[PwnIOS] PiSugarX not available ({e1}); path import failed ({e2}). "
+            "Battery info will be unavailable."
+        )
+        # 3) Module-shaped mock exposing PiSugarServer so call sites don't change
+        class _MockPiSugarModule:
+            class PiSugarServer:
+                @property
+                def battery_level(self) -> float:
+                    return 0.0
+                @property
+                def battery_charging(self) -> bool:
+                    return False
+        pisugarx = _MockPiSugarModule
 
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
