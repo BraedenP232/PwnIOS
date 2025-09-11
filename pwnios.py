@@ -62,9 +62,9 @@ except Exception as e1:
 
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
-    __version__ = "1.0.1"
+    __version__ = "1.0.2"
     __license__ = "GPL3"
-    __description__ = "Plugin for iOS companion app to display Pwnagotchi stats and control features."
+    __description__ = "Plugin for iOS companion app to display Pwnagotchi stats, share GPS, and control features."
 
     def __init__(self):
         self.running = False
