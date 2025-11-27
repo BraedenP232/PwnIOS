@@ -29,11 +29,14 @@ from pwnagotchi.ui.view import BLACK
 
 # Import PiSugar module dynamically to avoid hard dependency errors if not present
 PISUGAR_AVAILABLE = False
+PISUGAR_ERROR_MESSAGE = None
 pisugarx = None
+
 try:
     # 1) Try normal module import first
     pisugarx = importlib.import_module("pwnagotchi.plugins.default.pisugarx")
     PISUGAR_AVAILABLE = True
+    logging.info("[PwnIOS] PiSugarX module loaded successfully")
 except Exception as e1:
     try:
         # 2) Fallback: path-based import (older/custom images)
@@ -44,25 +47,44 @@ except Exception as e1:
         spec.loader.exec_module(mod)  # type: ignore[attr-defined]
         pisugarx = mod
         PISUGAR_AVAILABLE = True
+        logging.info("[PwnIOS] PiSugarX module loaded from path")
     except Exception as e2:
-        logging.warning(
-            f"[PwnIOS] PiSugarX not available ({e1}); path import failed ({e2}). "
-            "Battery info will be unavailable."
+        PISUGAR_ERROR_MESSAGE = (
+            f"PiSugarX module not available. "
+            f"Normal import failed: {str(e1)[:100]}; "
+            f"Path import failed: {str(e2)[:100]}"
         )
+        logging.warning(f"[PwnIOS] {PISUGAR_ERROR_MESSAGE}")
+        
         # 3) Module-shaped mock exposing PiSugarServer so call sites don't change
         class _MockPiSugarModule:
             class PiSugarServer:
+                def __init__(self, *args, **kwargs):
+                    """Mock init that accepts any arguments"""
+                    pass
+                
                 @property
                 def battery_level(self) -> float:
                     return 0.0
+                
                 @property
                 def battery_charging(self) -> bool:
                     return False
+                
+                def get_battery_level(self) -> float:
+                    """Mock method for compatibility"""
+                    return 0.0
+                
+                def get_battery_charging(self) -> bool:
+                    """Mock method for compatibility"""
+                    return False
+        
         pisugarx = _MockPiSugarModule
+
 
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
-    __version__ = "1.0.2"
+    __version__ = "1.0.3"
     __license__ = "GPL3"
     __description__ = "Plugin for iOS companion app to display Pwnagotchi stats, share GPS, and control features."
 
@@ -85,15 +107,90 @@ class PwnIOS(plugins.Plugin):
         self.broadcaster_task = None
         self.heartbeat_task = None
         
-        self.pisugar = pisugarx.PiSugarServer()
+        # Initialize PiSugar with comprehensive error handling
+        self.pisugar = None
+        self.pisugar_error = None
+        self._init_pisugar()
         
         self.last_face = None
         self.last_status = None
         self.ui_update_counter = 0
 
+    def _init_pisugar(self):
+        """Initialize PiSugar with enhanced error handling and diagnostics"""
+        try:
+            if not PISUGAR_AVAILABLE:
+                self.pisugar_error = "PiSugar module not available (see startup logs)"
+                logging.warning(f"[PwnIOS] {self.pisugar_error}")
+                # Create mock object
+                self.pisugar = pisugarx.PiSugarServer()
+                return
+            
+            # Try to initialize PiSugarServer
+            try:
+                # Try with no arguments first (newer versions)
+                self.pisugar = pisugarx.PiSugarServer()
+                logging.info("[PwnIOS] PiSugarServer initialized (no args)")
+            except TypeError as te:
+                # If that fails, check if it needs conn/event_conn arguments
+                if "missing" in str(te) and ("conn" in str(te) or "event_conn" in str(te)):
+                    self.pisugar_error = (
+                        "Outdated PiSugarX plugin detected. "
+                        "Update required from jayofelony's repo. "
+                        "The default pwnagotchi image has an outdated pisugarx.py with bugs."
+                    )
+                    logging.error(f"[PwnIOS] {self.pisugar_error}")
+                    logging.error("[PwnIOS] To fix: Update pisugarx.py from https://github.com/jayofelony/pwnagotchi")
+                    # Create mock object
+                    self.pisugar = pisugarx.PiSugarServer()
+                else:
+                    raise
+            
+            # Verify the PiSugar object is functional
+            if self.pisugar is not None:
+                try:
+                    # Test if we can access battery_level
+                    _ = self.pisugar.battery_level
+                    logging.info("[PwnIOS] PiSugar battery access verified")
+                except AttributeError as ae:
+                    if "'NoneType' object has no attribute" in str(ae):
+                        self.pisugar_error = (
+                            "PiSugar device not found or not powered on. "
+                            "If you have a PiSugar device, ensure it's connected and powered. "
+                            "Otherwise, battery info will show as N/A."
+                        )
+                        logging.warning(f"[PwnIOS] {self.pisugar_error}")
+                    else:
+                        raise
+                except Exception as e:
+                    self.pisugar_error = f"PiSugar battery check failed: {str(e)[:100]}"
+                    logging.warning(f"[PwnIOS] {self.pisugar_error}")
+            
+        except Exception as e:
+            self.pisugar_error = f"PiSugar initialization failed: {str(e)[:200]}"
+            logging.error(f"[PwnIOS] {self.pisugar_error}")
+            # Ensure we have a mock object
+            try:
+                self.pisugar = pisugarx.PiSugarServer()
+            except:
+                # Create inline mock if all else fails
+                class _InlineMock:
+                    @property
+                    def battery_level(self): return 0.0
+                    @property
+                    def battery_charging(self): return False
+                self.pisugar = _InlineMock()
+
     def on_loaded(self):
         self.running = True
         logging.info("[PwnIOS] Plugin loaded")
+        
+        # Log PiSugar status
+        if self.pisugar_error:
+            logging.warning(f"[PwnIOS] Battery monitoring unavailable: {self.pisugar_error}")
+        elif PISUGAR_AVAILABLE:
+            logging.info("[PwnIOS] Battery monitoring available")
+        
         self.server_thread = threading.Thread(target=self._start_websocket_server, daemon=True)
         self.server_thread.start()
 
@@ -367,6 +464,7 @@ class PwnIOS(plugins.Plugin):
             'get_face_image': lambda: self._handle_face_image_request(websocket),
             'set_mode': lambda: self._handle_set_mode(websocket, data),
             'reboot': lambda: self._handle_reboot(websocket),
+            'shutdown': lambda: self._handle_shutdown(websocket),
             'bored': lambda: self._handle_bored(websocket),
             'ping': lambda: self._handle_ping(websocket),
             'pong': lambda: self._handle_pong(websocket),
@@ -416,6 +514,19 @@ class PwnIOS(plugins.Plugin):
                 subprocess.run(['sudo', 'reboot'], check=True)
             except Exception as e:
                 logging.error(f"[PwnIOS] System reboot error: {e}")
+                
+    async def _handle_shutdown(self, websocket):
+        if self.agent and hasattr(self.agent, 'shutdown'):
+            try:
+                self.agent.shutdown()
+            except Exception as e:
+                logging.error(f"[PwnIOS] Shutdown error: {e}")
+        else:
+            try:
+                import subprocess
+                subprocess.run(['sudo', 'shutdown'], check=True)
+            except Exception as e:
+                logging.error(f"[PwnIOS] System shutdown error: {e}")
 
     async def _handle_bored(self, websocket):
         if self.agent and hasattr(self.agent, 'set_bored'):
@@ -715,11 +826,45 @@ class PwnIOS(plugins.Plugin):
         return 0
 
     def _get_battery_info(self):
+        """Get battery info with comprehensive error handling"""
         try:
-            level = self.pisugar.battery_level
-            status = "Charging" if self.pisugar.battery_charging else "Discharging"
-            return f"{round(level, 1)}% ({status})"
-        except Exception:
+            # Check if we have a functional PiSugar instance
+            if self.pisugar is None:
+                return "N/A (No PiSugar)"
+            
+            # Try to get battery level
+            try:
+                level = self.pisugar.battery_level
+                
+                # Check for None or invalid values
+                if level is None:
+                    if self.pisugar_error:
+                        return f"N/A ({self.pisugar_error[:30]}...)"
+                    return "N/A (Device not found)"
+                
+                # Try to get charging status
+                try:
+                    charging = self.pisugar.battery_charging
+                    if charging is None:
+                        charging = False
+                except (AttributeError, TypeError):
+                    charging = False
+                
+                status = "Charging" if charging else "Discharging"
+                return f"{round(level, 1)}% ({status})"
+                
+            except AttributeError as ae:
+                # Handle 'NoneType' object has no attribute errors
+                if "'NoneType' object has no attribute" in str(ae):
+                    if "No PiSugar device was found" in str(self.pisugar_error or ""):
+                        return "N/A (Update pisugarx.py)"
+                    return "N/A (Device offline)"
+                else:
+                    logging.warning(f"[PwnIOS] Battery attribute error: {ae}")
+                    return "N/A (Attr error)"
+                    
+        except Exception as e:
+            logging.warning(f"[PwnIOS] Battery info error: {e}")
             return "N/A"
 
     def _get_temperature(self):
@@ -845,7 +990,7 @@ class PwnIOS(plugins.Plugin):
                     'vendor': ap.get('vendor', '')
                 })
             else:
-                formatted_aps.append({ # Fixed a bug here
+                formatted_aps.append({
                     'bssid': str(ap),
                     'hostname': str(ap),
                     'channel': 0,
@@ -879,6 +1024,20 @@ class PwnIOS(plugins.Plugin):
 
     def on_sad(self, agent):
         self._broadcast_status_change('sad')
+        
+    def _broadcast_status_change(self, status):
+        """Helper method to broadcast status changes"""
+        face, current_status = self._get_current_face_and_status()
+        self.queue_message({
+            "type": "status_change",
+            "data": {
+                "status": status,
+                "face": face,
+                "timestamp": datetime.now().isoformat()
+            },
+            "face": face,
+            "status": status
+        })
 
     def on_ui_setup(self, ui):
         if self.options.get('display'):
