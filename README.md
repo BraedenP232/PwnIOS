@@ -124,15 +124,19 @@ sudo pwnagotchi plugins install pwnios
 Edit `/etc/pwnagotchi/config.toml`:
 
 ```toml
-main.plugins.pwnios.enabled = true
-main.plugins.pwnios.display = true              # Show connection count on display
-main.plugins.pwnios.display_gps = true          # Show GPS status on display
-main.plugins.pwnios.port = 8082                 # WebSocket server port
+### REQUIRED ###
+# main.plugins.pwnios.enabled = true
+# main.plugins.pwnios.port = 8082
+# main.plugins.pwnios.display = true # or false if you do not use a display
+# main.plugins.pwnios.display_gps = true # or false, same as above
 
+### OPTIONAL ###
+## PiSugar ##
+# main.plugins.pwnios.pisugar = true  # Enable PiSugar battery monitoring
+## GPS ##
+# main.plugins.pwnios.save_gps_log = false  # Enable GPS logging to file
+# main.plugins.pwnios.gps_log_path = /path/to/gps.log # /tmp/pwnagotchi_gps.log is set by default
 
-# Coming soon
-# main.plugins.pwnios.save_gps_log = true         # Optional: Enable GPS logging
-# main.plugins.pwnios.gps_log_path = "/tmp/pwnagotchi_gps.log"  # GPS log location
 ```
 
 ### 4. Restart Pwnagotchi and View Logs
