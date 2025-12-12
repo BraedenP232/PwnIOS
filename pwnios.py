@@ -83,7 +83,6 @@ class PwnIOS(plugins.Plugin):
         
         self.pisugar = None
         self.pisugar_error = None
-        self._init_pisugar()
         
         self.last_face = None
         self.last_status = None
@@ -91,9 +90,9 @@ class PwnIOS(plugins.Plugin):
 
     def _init_pisugar(self):
         # Read user config
-        PISUGAR_AVAILABLE = self.options.get("pisugar", False)
+        pisugar_enabled = self.options.get("pisugar", False)
 
-        if not PISUGAR_AVAILABLE:
+        if not pisugar_enabled:
             logging.info("[PwnIOS] PiSugar disabled in config — using mock")
             self.pisugar = _MockPiSugarModule.PiSugarServer()
             return
@@ -136,6 +135,8 @@ class PwnIOS(plugins.Plugin):
     def on_loaded(self):
         self.running = True
         logging.info("[PwnIOS] Plugin loaded")
+        
+        self._init_pisugar()
         
         # Log PiSugar status
         if self.pisugar_error:
