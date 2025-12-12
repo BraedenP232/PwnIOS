@@ -19,72 +19,46 @@ from pwnagotchi.ui.view import BLACK
 # Configuration values
 # /etc/pwnagotchi/config.toml
 
+# main.custom_plugin_repos = [
+#     "https://github.com/BraedenP232/pwnios/archive/main.zip",
+# ]
+
+### REQUIRED ###
 # main.plugins.pwnios.enabled = true
+# main.plugins.pwnios.port = 8082
 # main.plugins.pwnios.display = true
 # main.plugins.pwnios.display_gps = true
-# main.plugins.pwnios.port = 8082
 
-# Optional GPS storing path | /tmp/pwnagotchi_gps.log is set by default
-# main.plugins.pwnios.gps_log_path = /path/to/gps.log
+### OPTIONAL ###
+## PiSugar ##
+# main.plugins.pwnios.pisugar = true  # Enable PiSugar battery monitoring
+## GPS ##
+# main.plugins.pwnios.save_gps_log = false  # Enable GPS logging to file
+# main.plugins.pwnios.gps_log_path = /path/to/gps.log # /tmp/pwnagotchi_gps.log is set by default
 
-# Import PiSugar module dynamically to avoid hard dependency errors if not present
+
+# Use MockPiSugarModule initially or else PiSugar import errors will occur at startup
+class _MockPiSugarModule:
+    class PiSugarServer:
+        def __init__(self, *args, **kwargs):
+            pass
+        @property
+        def battery_level(self) -> float:
+            return 0.0
+        @property
+        def battery_charging(self) -> bool:
+            return False
+        def get_battery_level(self) -> float:
+            return 0.0
+        def get_battery_charging(self) -> bool:
+            return False
+
 PISUGAR_AVAILABLE = False
-PISUGAR_ERROR_MESSAGE = None
-pisugarx = None
-
-try:
-    # 1) Try normal module import first
-    pisugarx = importlib.import_module("pwnagotchi.plugins.default.pisugarx")
-    PISUGAR_AVAILABLE = True
-    logging.info("[PwnIOS] PiSugarX module loaded successfully")
-except Exception as e1:
-    try:
-        # 2) Fallback: path-based import (older/custom images)
-        PISUGARX_PATH = "/home/pi/.pwn/lib/python3.11/site-packages/pwnagotchi/plugins/default/pisugarx.py"
-        spec = importlib.util.spec_from_file_location("pisugarx", PISUGARX_PATH)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["pisugarx"] = mod
-        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-        pisugarx = mod
-        PISUGAR_AVAILABLE = True
-        logging.info("[PwnIOS] PiSugarX module loaded from path")
-    except Exception as e2:
-        PISUGAR_ERROR_MESSAGE = (
-            f"PiSugarX module not available. "
-            f"Normal import failed: {str(e1)[:100]}; "
-            f"Path import failed: {str(e2)[:100]}"
-        )
-        logging.warning(f"[PwnIOS] {PISUGAR_ERROR_MESSAGE}")
-        
-        # 3) Module-shaped mock exposing PiSugarServer so call sites don't change
-        class _MockPiSugarModule:
-            class PiSugarServer:
-                def __init__(self, *args, **kwargs):
-                    """Mock init that accepts any arguments"""
-                    pass
-                
-                @property
-                def battery_level(self) -> float:
-                    return 0.0
-                
-                @property
-                def battery_charging(self) -> bool:
-                    return False
-                
-                def get_battery_level(self) -> float:
-                    """Mock method for compatibility"""
-                    return 0.0
-                
-                def get_battery_charging(self) -> bool:
-                    """Mock method for compatibility"""
-                    return False
-        
-        pisugarx = _MockPiSugarModule
 
 
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
-    __version__ = "1.0.3"
+    __version__ = "1.0.3.1"
     __license__ = "GPL3"
     __description__ = "Plugin for iOS companion app to display Pwnagotchi stats, share GPS, and control features."
 
@@ -107,83 +81,62 @@ class PwnIOS(plugins.Plugin):
         self.broadcaster_task = None
         self.heartbeat_task = None
         
-        # Initialize PiSugar with comprehensive error handling
         self.pisugar = None
         self.pisugar_error = None
-        self._init_pisugar()
         
         self.last_face = None
         self.last_status = None
         self.ui_update_counter = 0
 
     def _init_pisugar(self):
-        """Initialize PiSugar with enhanced error handling and diagnostics"""
+        # Read user config
+        pisugar_enabled = self.options.get("pisugar", False)
+
+        if not pisugar_enabled:
+            logging.info("[PwnIOS] PiSugar disabled in config — using mock")
+            self.pisugar = _MockPiSugarModule.PiSugarServer()
+            return
+
+        # Try to import PiSugar dynamically (config requires it)
         try:
-            if not PISUGAR_AVAILABLE:
-                self.pisugar_error = "PiSugar module not available (see startup logs)"
-                logging.warning(f"[PwnIOS] {self.pisugar_error}")
-                # Create mock object
-                self.pisugar = pisugarx.PiSugarServer()
+            import importlib
+            pisugarx = importlib.import_module(
+                "pwnagotchi.plugins.default.pisugarx"
+            )
+            logging.info("[PwnIOS] PiSugarX imported (config enabled)")
+        except Exception as e1:
+            try:
+                import importlib.util, sys
+                PISUGARX_PATH = "/home/pi/.pwn/lib/python3.11/site-packages/pwnagotchi/plugins/default/pisugarx.py"
+                spec = importlib.util.spec_from_file_location("pisugarx", PISUGARX_PATH)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules["pisugarx"] = mod
+                spec.loader.exec_module(mod)
+                pisugarx = mod
+                logging.info("[PwnIOS] PiSugarX loaded from fallback path")
+            except Exception as e2:
+                logging.warning(
+                    f"[PwnIOS] PiSugar requested but module unavailable: {e1}; {e2}"
+                )
+                self.pisugar = _MockPiSugarModule.PiSugarServer()
                 return
-            
-            # Try to initialize PiSugarServer
-            try:
-                # Try with no arguments first (newer versions)
-                self.pisugar = pisugarx.PiSugarServer()
-                logging.info("[PwnIOS] PiSugarServer initialized (no args)")
-            except TypeError as te:
-                # If that fails, check if it needs conn/event_conn arguments
-                if "missing" in str(te) and ("conn" in str(te) or "event_conn" in str(te)):
-                    self.pisugar_error = (
-                        "Outdated PiSugarX plugin detected. "
-                        "Update required from jayofelony's repo. "
-                        "The default pwnagotchi image has an outdated pisugarx.py with bugs."
-                    )
-                    logging.error(f"[PwnIOS] {self.pisugar_error}")
-                    logging.error("[PwnIOS] To fix: Update pisugarx.py from https://github.com/jayofelony/pwnagotchi")
-                    # Create mock object
-                    self.pisugar = pisugarx.PiSugarServer()
-                else:
-                    raise
-            
-            # Verify the PiSugar object is functional
-            if self.pisugar is not None:
-                try:
-                    # Test if we can access battery_level
-                    _ = self.pisugar.battery_level
-                    logging.info("[PwnIOS] PiSugar battery access verified")
-                except AttributeError as ae:
-                    if "'NoneType' object has no attribute" in str(ae):
-                        self.pisugar_error = (
-                            "PiSugar device not found or not powered on. "
-                            "If you have a PiSugar device, ensure it's connected and powered. "
-                            "Otherwise, battery info will show as N/A."
-                        )
-                        logging.warning(f"[PwnIOS] {self.pisugar_error}")
-                    else:
-                        raise
-                except Exception as e:
-                    self.pisugar_error = f"PiSugar battery check failed: {str(e)[:100]}"
-                    logging.warning(f"[PwnIOS] {self.pisugar_error}")
-            
+
+        # Now that module exists, try initializing
+        try:
+            self.pisugar = pisugarx.PiSugarServer()
+            logging.info("[PwnIOS] PiSugar initialized successfully")
         except Exception as e:
-            self.pisugar_error = f"PiSugar initialization failed: {str(e)[:200]}"
-            logging.error(f"[PwnIOS] {self.pisugar_error}")
-            # Ensure we have a mock object
-            try:
-                self.pisugar = pisugarx.PiSugarServer()
-            except:
-                # Create inline mock if all else fails
-                class _InlineMock:
-                    @property
-                    def battery_level(self): return 0.0
-                    @property
-                    def battery_charging(self): return False
-                self.pisugar = _InlineMock()
+            logging.warning(
+                f"[PwnIOS] PiSugar init failed ({e}) — using mock"
+            )
+            self.pisugar = _MockPiSugarModule.PiSugarServer()
+
 
     def on_loaded(self):
         self.running = True
         logging.info("[PwnIOS] Plugin loaded")
+        
+        self._init_pisugar()
         
         # Log PiSugar status
         if self.pisugar_error:
@@ -285,8 +238,23 @@ class PwnIOS(plugins.Plugin):
                 except: pass
                 
         for client in self.connected_clients.copy():
-            try: asyncio.run_coroutine_threadsafe(client.close(), self.loop)
-            except: pass
+            try:
+                # Only use run_coroutine_threadsafe when we have a valid running loop
+                if self.loop is not None and getattr(self.loop, "is_running", lambda: False)():
+                    asyncio.run_coroutine_threadsafe(client.close(), self.loop)
+                else:
+                    # No event loop available to schedule on: try to close synchronously
+                    try:
+                        asyncio.run(client.close())
+                    except Exception:
+                        # If asyncio.run fails (e.g. already in an event loop), try best-effort close
+                        try:
+                            close_ret = client.close()
+                            # close_ret may be a coroutine; if so, ignore as last resort
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             
         self.connected_clients.clear()
         self.client_health.clear()
