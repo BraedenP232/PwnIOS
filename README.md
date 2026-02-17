@@ -150,7 +150,7 @@ pwnkill && pwnlog
 ## 📲 iOS App Installation
 
 ### Option 1: App Store
-> 📱 The Pwnagotchi Companion app will be available on the App Store soon!
+> 📱 The Pwnagotchi Companion app can be purchased and downloaded [here](https://apps.apple.com/us/app/pwnagotchi-companion/id6751243451)!
 
 ## 💡 Usage Guide
 
