@@ -107,13 +107,14 @@ class PwnIOS(plugins.Plugin):
         except Exception as e1:
             try:
                 import importlib.util, sys
-                PISUGARX_PATH = "/home/pi/.pwn/lib/python3.11/site-packages/pwnagotchi/plugins/default/pisugarx.py"
+                _py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+                PISUGARX_PATH = f"/home/pi/.pwn/lib/{_py_ver}/site-packages/pwnagotchi/plugins/default/pisugarx.py"
                 spec = importlib.util.spec_from_file_location("pisugarx", PISUGARX_PATH)
                 mod = importlib.util.module_from_spec(spec)
                 sys.modules["pisugarx"] = mod
                 spec.loader.exec_module(mod)
                 pisugarx = mod
-                logging.info("[PwnIOS] PiSugarX loaded from fallback path")
+                logging.info(f"[PwnIOS] PiSugarX loaded from fallback path ({_py_ver})")
             except Exception as e2:
                 logging.warning(
                     f"[PwnIOS] PiSugar requested but module unavailable: {e1}; {e2}"
