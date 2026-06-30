@@ -123,16 +123,27 @@ sudo pwnagotchi plugins install pwnios
 
 Edit `/etc/pwnagotchi/config.toml`:
 
+### 3a - [Jayofelony's 2.9.5.4+](https://github.com/jayofelony/pwnagotchi)
+```toml
+[pwnios]
+enabled = true
+port = 8082
+display = false        # Display label
+display_gps = false    # Display GPS coords
+pisugar = false        # Pisugar battery monitoring  
+save_gps_log = false   # Save GPS coords
+gps_log_path = ""      # Custom GPS log file path | Default = "/tmp/pwnagotchi_gps.log"
+```
+
+### 3b - 2.9.5.3 and lower
 ```toml
 main.plugins.pwnios.enabled = true
-main.plugins.pwnios.display = true              # Show connection count on display
-main.plugins.pwnios.display_gps = true          # Show GPS status on display
-main.plugins.pwnios.port = 8082                 # WebSocket server port
-
-
-# Coming soon
-# main.plugins.pwnios.save_gps_log = true         # Optional: Enable GPS logging
-# main.plugins.pwnios.gps_log_path = "/tmp/pwnagotchi_gps.log"  # GPS log location
+main.plugins.pwnios.port = 8082
+main.plugins.pwnios.display = true         # Display label
+main.plugins.pwnios.display_gps = true     # Display GPS coords
+main.plugins.pwnios.pisugar = false        # Pisugar battery monitoring  
+main.plugins.pwnios.save_gps_log = false   # Save GPS coords
+main.plugins.pwnios.gps_log_path = ""      # Custom GPS log file path | Default = "/tmp/pwnagotchi_gps.log"
 ```
 
 ### 4. Restart Pwnagotchi and View Logs
@@ -146,7 +157,7 @@ pwnkill && pwnlog
 ## 📲 iOS App Installation
 
 ### Option 1: App Store
-> 📱 The Pwnagotchi Companion app will be available on the App Store soon!
+> 📱 [Pwnagotchi Companion](https://apps.apple.com/ca/app/pwnagotchi-companion/id6751243451)
 
 ## 💡 Usage Guide
 
@@ -173,6 +184,7 @@ pwnkill && pwnlog
 ### Connection Issues
 
 #### "Cannot connect to Pwnagotchi"
+- 🚨 Check logs! SSH to Raspberry Pi and simply run command `pwnlog`, are there errors?
 - ✅ Verify [Bluetooth tethering](https://github.com/jayofelony/pwnagotchi/wiki/Step-2-Connecting) is connected properly
 - 🔌 Check if Pwnagotchi is powered on and responsive
 - 🌐 Confirm plugin is enabled and Pwnagotchi has restarted
@@ -180,8 +192,7 @@ pwnkill && pwnlog
 
 #### "Connection keeps dropping"
 - 📶 Ensure Pwnagotchi is close to iOS device
-- ⚡ Verify Pwnagotchi power supply is stable
-- 📊 Enable debug logging to identify patterns
+
 
 #### "Face/Screen images not updating"
 - 🖼️ Verify Pwnagotchi display is active and changing
@@ -205,7 +216,7 @@ The app includes comprehensive diagnostic tools:
 - **iOS**: 16.0 or later
 - **Devices**: iPhone, iPad, iPod touch
 - **Network**: WiFi or Cellular with local network access
-- **Pwnagotchi**: [Jayofelony's fork](https://github.com/jayofelony/pwnagotchi/releases/tag/v2.9.5.3)
+- **Pwnagotchi**: [Jayofelony's fork](https://github.com/jayofelony/pwnagotchi/releases/tag/v2.9.5.4)
 
 ### Network Protocols
 - **WebSocket**: Primary communication protocol (RFC 6455)
@@ -230,7 +241,7 @@ The app includes comprehensive diagnostic tools:
 
 ### Community Resources
 - 💬 **Discord Server**: [Unofficial Pwnagotchi Community](https://discord.gg/VRwTWUGaXb)
-- 📖 **Documentation**: [Official Pwnagotchi Docs](https://pwnagotchi.ai)
+- 📖 **Documentation**: [Official Pwnagotchi Docs](https://github.com/jayofelony/pwnagotchi/wiki)
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BraedenP232/PwnagotchiCompanion/issues)
 - 💡 **Feature Requests**: [GitHub Discussions](https://github.com/BraedenP232/PwnagotchiCompanion/discussions)
 
@@ -295,7 +306,6 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - UIKit framework (Apple)
 - Network framework (Apple)
 - Combine framework (Apple)
-
 ---
 
 ## 🙏 Acknowledgments
