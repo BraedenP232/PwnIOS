@@ -889,7 +889,10 @@ class PwnIOS(plugins.Plugin):
             logging.info(f"Longitude: {self.gps_data['longitude']}")
             logging.info(f"Accuracy: {self.gps_data['accuracy']}")
             
-            gps_filename = filename.replace(".pcap", ".gps.json")
+            gps_filename = filename.replace(
+                ".pcapng" if filename.endswith(".pcapng") else ".pcap",
+                ".gps.json"
+            )
             # avoid 0.000... measurements
             if all([self.gps_data.get("latitude"), self.gps_data.get("longitude")]):
                 logging.info(f"saving GPS to {gps_filename} ({self.gps_data})")
