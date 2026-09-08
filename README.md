@@ -1,107 +1,51 @@
-# Pwnagotchi Companion: Advanced Pwnagotchi Companion for iOS
+# Pwnagotchi Companion (PwnIOS)
 
-## Overview
+**PwnIOS** is an iOS companion app for [Pwnagotchi](https://pwnagotchi.ai).
 
-**Pwnagotchi Companion** is a sophisticated iOS companion app that provides real-time monitoring and control of your Pwnagotchi device. Using advanced WebSocket technology with intelligent reconnection, message queuing, and health monitoring, Pwnagotchi Companion delivers a seamless experience for managing your Pwnagotchi from your iPhone or iPad.
+Connect your iPhone or iPad to your Pwnagotchi over WebSocket and get live stats, screen mirroring, GPS sharing, network information, events, and remote control from the app.
+
+---
+
+## Features
+
+- **Live dashboard** — uptime, battery, temperature, mode, and connection status
+- **Screen mirroring** — mirror the Pwnagotchi display directly on your iOS device
+- **Network monitoring** — discovered access points and handshake status
+- **GPS sharing** — send iOS location data to Pwnagotchi for wardriving
+- **GPS logging** — save location data for later use and WiGLE-compatible exports
+- **Events** — live activity and connection log
+- **Remote control** — switch modes and reboot Pwnagotchi remotely
+- **PiSugar support** — battery monitoring through PiSugar
+- **WebSocket connection** — automatic reconnect, message queuing, and retry handling
 
 ---
 
-## ✨ Key Features
+## Requirements
 
-### 📊 **Real-Time Monitoring**
-- **Live Statistics**: Monitor uptime, battery level, temperature, and current operating mode
-- **Connection Health**: Advanced network quality detection with automatic degradation handling
-- **Performance Metrics**: Track message throughput, ping latency, and connection stability
-- **Activity Timeline**: Comprehensive event logging with categorized status updates
-
-### 🎭 **Visual Interface**
-- **Live Face Display**: Real-time Pwnagotchi face updates with support for custom faces
-- **Screen Mirroring**: Direct display view of your Pwnagotchi's actual screen
-- **Dual View Modes**: Switch between face view and full screen display
-- **Automatic Refresh**: Configurable refresh intervals for optimal performance
-- **Custom Face Capabilities**: Compatible with custom faces via custom-faces-switcher
-
-### 🌐 **Advanced Connectivity**
-- **Intelligent WebSocket Management**: Auto-reconnection with exponential backoff
-- **Message Queue System**: Reliable message delivery with retry logic and priority handling
-- **Background Resilience**: Maintains connection state across app lifecycle changes
-
-### 📍 **Location Services**
-- **GPS Tracking**: Real-time location sharing
-- **Accuracy Metrics**: Display GPS precision and last update timestamps
-
-### 🔧 **Remote Control**
-- **Mode Switching**: Change between AUTO, MANUAL
-- **System Commands**: Remote reboot and state management
-
-### 📡 **Network Analysis**
-- **Access Point Discovery**: Real-time WiFi network detection and analysis
-- **Handshake Monitoring**: Live capture status and peer detection
-- **Channel Information**: Current operating channel and hop detection
-- **Network Statistics**: Comprehensive WiFi environment analysis
+- iOS **16.0+**
+- [jayofelony's Pwnagotchi fork](https://github.com/jayofelony/pwnagotchi)
+- iPhone or iPad with Bluetooth tethering enabled
 
 ---
-### What's new? Version 1.0.2
-- **Handshake GPS** On_Handshake() now saves a .gps.json version alongside .pcap with gps coords if available.
-- **Improved Instructions** Combed through the current *Bluetooth Setup Guide* and *FAQ* within **Pwnagotchi Companion** app to explain things more diligently and it's easier to read.
-- **No Haptic** Disabled *Haptic Feedback Toggle* for now as haptic engine was not running consistantly throughout multiple views.
-- **Layout Fixing** Fixed some places where text was getting cut off so I allowed it to wrap.
----
 
-## 🏗️ Architecture Highlights
+## Installation
 
-### Robust Connection Management
-```swift
-// Advanced connection states with automatic recovery
-enum ConnectionState {
-    case disconnected, connecting, connected, reconnecting, failed(Error)
-}
+### 1. Install the PwnIOS plugin
+
+#### Manual installation
+
+SSH into your Pwnagotchi and create the plugin file:
+
+```bash
+cd /etc/pwnagotchi/custom-plugins/
+sudo nano pwnios.py
 ```
 
-### Intelligent Message Handling
-- **Priority Queue System**: High, normal, and low priority message routing
-- **Automatic Retry Logic**: Failed messages are intelligently retried
-- **Message Acknowledgment**: Reliable delivery confirmation system
-- **Queue Persistence**: Messages survive connection interruptions
+Copy the contents of [`pwnios.py`](https://github.com/BraedenP232/PwnIOS/blob/main/pwnios.py) into the file and save.
 
-### Performance Optimization
-- **Background Processing**: JSON parsing and image decoding off main thread
-- **Memory Management**: Efficient image handling and data cleanup
-- **Timer Coordination**: Sophisticated timer management for different update intervals
-- **Resource Conservation**: Automatic pause/resume based on app state
+#### Plugin repository
 
----
-
-## 📱 iOS App Features
-
-### Connection Management
-- **Manual Configuration**: Custom IP and port configuration with validation
-- **Connection History**: Remember and quickly reconnect to known devices
-
-### User Interface
-- **Real-Time Dashboard**: Live stats with beautiful visualizations
-- **Event Timeline**: Scrollable history of all Pwnagotchi activities
-- **Settings Panel**: Comprehensive configuration options
-- **Debug Console**: Advanced logging for troubleshooting
-
----
-
-## 🚀 Installation
-
-### 1a. Manual Pwnagotchi Plugin Setup
-
-Navigate to your custom plugins directory:
-`cd ~/custom-plugins/` # Or wherever you have set yours in config.toml
-
-### 2a.
-Create pwnios.py:
-`sudo nano pwnios.py`
-Paste contents of pwnios.py [plugin](https://github.com/BraedenP232/PwnIOS/blob/main/pwnios.py)
-
-
-### 1b. Repository Pwnagotchi Plugin Setup
-
-Add the custom plugin repository to your `/etc/pwnagotchi/config.toml`:
+Alternatively, add the PwnIOS plugin repository to your Pwnagotchi configuration:
 
 ```toml
 main.custom_plugin_repos = [
@@ -109,37 +53,61 @@ main.custom_plugin_repos = [
 ]
 ```
 
-### 2b. Install the Plugin
+Then install it:
 
 ```bash
-# Update plugin repositories
 sudo pwnagotchi plugins update
-
-# Install Pwnagotchi Companion plugin
 sudo pwnagotchi plugins install pwnios
 ```
 
-### 3. Configure the Plugin
+---
 
-Edit `/etc/pwnagotchi/config.toml`:
+### 2. Configure PwnIOS
 
-```toml
-### REQUIRED ###
-# main.plugins.pwnios.enabled = true
-# main.plugins.pwnios.port = 8082
-# main.plugins.pwnios.display = true # or false if you do not use a display
-# main.plugins.pwnios.display_gps = true # or false, same as above
+Edit:
 
-### OPTIONAL ###
-## PiSugar ##
-# main.plugins.pwnios.pisugar = true  # Enable PiSugar battery monitoring
-## GPS ##
-# main.plugins.pwnios.save_gps_log = false  # Enable GPS logging to file
-# main.plugins.pwnios.gps_log_path = /path/to/gps.log # /tmp/pwnagotchi_gps.log is set by default
-
+```bash
+sudo nano /etc/pwnagotchi/config.toml
 ```
 
-### 4. Restart Pwnagotchi and View Logs
+Add or modify the PwnIOS configuration:
+
+```toml
+[main.plugins.pwnios]
+enabled = true
+
+# Display
+port = 8082
+display = false
+display_gps = false
+
+# PiSugar
+pisugar = false
+
+# GPS
+save_gps_log = true
+gps_log_path = "/tmp/pwnagotchi_gps.log"
+gps_altitude = 10
+```
+
+### Configuration options
+
+| Option | Default | Description |
+|---|---:|---|
+| `enabled` | `true` | Enable the PwnIOS plugin |
+| `port` | `8082` | WebSocket server port |
+| `display` | `false` | Display iOS connection status on Pwnagotchi |
+| `display_gps` | `false` | Display GPS coordinates on Pwnagotchi |
+| `pisugar` | `false` | Enable PiSugar battery monitoring |
+| `save_gps_log` | `true` | Save GPS data to a log file |
+| `gps_log_path` | `/tmp/pwnagotchi_gps.log` | GPS log file location |
+| `gps_altitude` | `10` | Fallback altitude in metres for GPS exports |
+
+> `gps_altitude` is used because iOS currently does not provide altitude data to PwnIOS. The value is written to the `.gps.json` data used for WiGLE-compatible exports.
+
+---
+
+### 3. Restart Pwnagotchi
 
 ```bash
 pwnkill && pwnlog
@@ -147,178 +115,143 @@ pwnkill && pwnlog
 
 ---
 
-## 📲 iOS App Installation
+### 4. Install the iOS app
 
-### Option 1: App Store
-> 📱 The Pwnagotchi Companion app can be purchased and downloaded [here](https://apps.apple.com/us/app/pwnagotchi-companion/id6751243451)!
-
-## 💡 Usage Guide
-
-### Initial Setup
-1. **Network Connection**: Connect your iOS device to the Pwnagotchi via [Bluetooth Tethering](https://github.com/jayofelony/pwnagotchi/wiki/Step-2-Connecting)
-2. **Verify Connection**: Verify the Bluetooth connection and possibly restart Pwnagotchi
-3. **Connection**: Pwnagotchi Companion will present *Live* when the connection is established
-
-### Navigation
-- **Dashboard**: Main view with live statistics and face display
-- **Screen View**: Swipe to view actual Pwnagotchi display
-- **Network**: View discovered APs and some information about them
-- **Location**: GPS sharing from iOS device to Pwnagotchi, saved for optional wardriving
-- **Events**: Detailed activity log with filtering options
-- **Settings**: App configuration and connection management
-
-### Advanced Features
-- **Debug Mode**: Enable detailed logging for troubleshooting
+**[Download Pwnagotchi Companion from the App Store](https://apps.apple.com/us/app/pwnagotchi-companion/id6751243451)**
 
 ---
 
-## 🔍 Troubleshooting
+## Usage
 
-### Connection Issues
+Connect your iPhone or iPad to the Pwnagotchi using [Bluetooth tethering](https://github.com/jayofelony/pwnagotchi/wiki/Step-2-Connecting).
 
-#### "Cannot connect to Pwnagotchi"
-- ✅ Verify [Bluetooth tethering](https://github.com/jayofelony/pwnagotchi/wiki/Step-2-Connecting) is connected properly
-- 🔌 Check if Pwnagotchi is powered on and responsive
-- 🌐 Confirm plugin is enabled and Pwnagotchi has restarted
-- 🔧 Troubleshoot using [wpa_2's great writeup](https://www.reddit.com/r/pwnagotchi/comments/1m4riyn/bluetooth_tethering_issues_try_this_fix/)
+Once the connection is established, the app will show **Live**.
 
-#### "Connection keeps dropping"
-- 📶 Ensure Pwnagotchi is close to iOS device
-- ⚡ Verify Pwnagotchi power supply is stable
-- 📊 Enable debug logging to identify patterns
+### Dashboard
 
-#### "Face/Screen images not updating"
-- 🖼️ Verify Pwnagotchi display is active and changing
-- 📡 Check WebSocket message flow in debug logs
-- 🔄 Toggle between face and screen view modes
-- ⚙️ Restart both app and Pwnagotchi if needed
+Live Pwnagotchi statistics including:
 
-### Advanced Diagnostics
+- Uptime
+- Battery
+- Temperature
+- Current mode
+- Connection status
+- Pwnagotchi face
 
-The app includes comprehensive diagnostic tools:
-- **Connection Metrics**: Real-time latency and throughput monitoring
-- **Message Inspector**: View raw WebSocket traffic
-- **Health Monitor**: Connection quality assessment
-- **Network Analyzer**: WiFi environment analysis
+### Screen
 
----
+Mirrors the Pwnagotchi display directly in the app.
 
-## 🛠️ Technical Specifications
+### Network
 
-### System Requirements
-- **iOS**: 16.0 or later
-- **Devices**: iPhone, iPad, iPod touch
-- **Network**: WiFi or Cellular with local network access
-- **Pwnagotchi**: [Jayofelony's fork](https://github.com/jayofelony/pwnagotchi/releases/tag/v2.9.5.3)
+View discovered access points and handshake activity in real time.
 
-### Network Protocols
-- **WebSocket**: Primary communication protocol (RFC 6455)
-- **HTTP**: Screen capture and control commands
-- **TCP**: Reliable connection with automatic retry
-- **JSON**: Structured data exchange format
+### Location
 
-### Performance Characteristics
-- **Latency**: Sub-second response times on good networks
-- **Throughput**: Handles high-frequency updates without blocking
-- **Memory**: Optimized for minimal memory footprint
-- **Battery**: Efficient background processing to preserve battery life
+Share your iOS device's GPS location with Pwnagotchi.
+
+GPS data can also be logged for later use and exported in a format compatible with WiGLE uploads.
+
+### Events
+
+View connection events and Pwnagotchi activity as they happen.
+
+### Settings
+
+Configure the connection, logging, and debugging options.
 
 ---
 
-## 🤝 Community & Support
+## Troubleshooting
 
-### Related Projects
-- 🧠 **jayofelony's Pwnagotchi Fork**: [github.com/jayofelony/pwnagotchi](https://github.com/jayofelony/pwnagotchi)
-- 🤖 **PwnDroid (Android)**: [PwnDroid Repository](https://github.com/jayofelony/pwnagotchi-torch-plugins)
-- 🔧 **Pwnagotchi Plugins**: [Official Plugin Collection](https://github.com/jayofelony/pwnagotchi/tree/noai/pwnagotchi/plugins/default)
+### PwnIOS won't connect
 
-### Community Resources
-- 💬 **Discord Server**: [Unofficial Pwnagotchi Community](https://discord.gg/VRwTWUGaXb)
-- 📖 **Documentation**: [Official Pwnagotchi Docs](https://pwnagotchi.ai)
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BraedenP232/PwnagotchiCompanion/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/BraedenP232/PwnagotchiCompanion/discussions)
+Check the following:
 
-### Getting Help
-1. **Check Documentation**: Most common issues are covered here
-2. **Search Issues**: Someone may have already solved your problem
-3. **Enable Debug Logging**: Helps identify specific issues
-4. **Community Support**: Ask questions in Discord or GitHub Discussions
-5. **Bug Reports**: Use provided templates for best results
+1. Bluetooth tethering is enabled on your iOS device.
+2. The PwnIOS plugin is enabled in `config.toml`.
+3. Pwnagotchi has been restarted after installing or changing the plugin.
+4. Your iOS device is connected to the Pwnagotchi's Bluetooth network.
 
----
+If Bluetooth tethering itself is unreliable, see this [Pwnagotchi tethering writeup](https://www.reddit.com/r/pwnagotchi/comments/1m4riyn/bluetooth_tethering_issues_try_this_fix/).
 
-## 🚀 Roadmap
+### Connection keeps dropping
 
-### Upcoming Features
-- **watchOS Companion**: Basic stats and notifications on Apple Watch
-- **Widget Support**: iOS home screen widgets for quick status
-- **Multi-Device**: Manage multiple Pwnagotchi devices
-- **Push Notifications**: Alerts for important events
-- **Advanced Analytics**: Historical data analysis and trends
+Keep the iOS device close to the Pwnagotchi and check the Pwnagotchi's power stability.
 
-### Long-term Goals
-- **macOS Version**: Full-featured macOS companion app
-- **Multi-Platform Version**: Potentially a release of the app on most platforms built with [Expo](https://expo.dev)
-- **Automation**: Integration with iOS Shortcuts and HomeKit
-- **Cloud Services**: Optional cloud backup and sync
-- **Advanced Mapping**: GPS tracking with map visualization
+Enable debug logging in the app if you need to determine whether the problem is related to Bluetooth tethering, the WebSocket connection, or the Pwnagotchi itself.
+
+### Face or screen isn't updating
+
+Check that:
+
+- The Pwnagotchi display is functioning normally.
+- The PwnIOS plugin is running.
+- WebSocket traffic is being received.
+- Debug logging doesn't show connection or parsing errors.
+
+Restarting both the Pwnagotchi and the app can also clear a stale connection.
 
 ---
 
-## 🤝 Contributing
+## What's New — v1.0.4.0
 
-We welcome contributions from the community! Here's how you can help:
+### Configuration
 
-### Development
-- 🐛 **Bug Fixes**: Help identify and fix issues
-- ✨ **New Features**: Implement requested functionality
-- 📚 **Documentation**: Improve guides and API documentation
-- 🧪 **Testing**: Beta testing on different devices and networks
+- Updated the configuration example to use the current TOML table syntax:
+  ```toml
+  [main.plugins.pwnios]
+  ```
+- Added the `gps_altitude` configuration option.
 
-### Getting Started
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes with proper documentation
-4. Test thoroughly on real devices
-5. Submit a pull request with detailed description
+### GPS
 
-### Code Style
-- Follow Swift best practices and iOS Human Interface Guidelines
-- Use SwiftUI for new UI components
-- Include unit tests for new functionality
-- Document public APIs with DocC comments
+- `_handle_gps_data` now captures altitude.
+- Uses `gps_altitude` as a fallback because iOS does not currently provide altitude data.
+- `gps_export` now includes the required `Altitude` field.
+- Renamed `Timestamp` to `Updated` in GPS exports.
 
----
+The GPS export now uses the field names expected by WiGLE:
 
-## 📄 License
+```text
+Latitude
+Longitude
+Altitude
+Accuracy
+Updated
+```
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This fixes WiGLE CSV uploads rather than simply changing the field names for consistency.
 
-### Third-Party Libraries
-- SwiftUI framework (Apple)
-- UIKit framework (Apple)
-- Network framework (Apple)
-- Combine framework (Apple)
+### UI
 
----
-
-## 🙏 Acknowledgments
-
-- **evilsocket**: Original Pwnagotchi creator
-- **jayofelony**: Maintaining the active Pwnagotchi fork
-- **Pwnagotchi Community**: Continuous inspiration and feedback
+- Added `ui._lock` protection to:
+  - `on_ui_setup`
+  - `on_ui_update`
+  - `on_unload`
+- Updated UI handling to match the current Pwnagotchi default-plugin convention.
+- `on_unload` now properly deregisters:
+  - `ios_clients`
+  - `gps_long`
+  - `gps_lat`
 
 ---
 
-## 📈 Statistics
+## Links
 
-![GitHub stars](https://img.shields.io/github/stars/BraedenP232/PwnIOS)
-![GitHub forks](https://img.shields.io/github/forks/BraedenP232/PwnIOS) 
-![GitHub issues](https://img.shields.io/github/issues/BraedenP232/PwnIOS)
-![GitHub license](https://img.shields.io/github/license/BraedenP232/PwnIOS)
-![iOS version](https://img.shields.io/badge/iOS-16.0+-blue)
-![Swift version](https://img.shields.io/badge/Swift-5.0+-orange)
+- [Pwnagotchi](https://pwnagotchi.ai)
+- [jayofelony's Pwnagotchi fork](https://github.com/jayofelony/pwnagotchi)
+- [PwnIOS on GitHub](https://github.com/BraedenP232/PwnIOS)
+- [Discord](https://discord.gg/VRwTWUGaXb)
+- [Issues](https://github.com/BraedenP232/PwnagotchiCompanion/issues)
+- [Discussions](https://github.com/BraedenP232/PwnagotchiCompanion/discussions)
 
 ---
 
-> **Note**: This project is not officially affiliated with the Pwnagotchi project but is developed with love for the community. No Pwnagotchi feelings were harmed in the making of this app. 🤖❤️
+## License
+
+[MIT License](LICENSE)
+
+---
+
+**PwnIOS is not officially affiliated with the Pwnagotchi project.**
