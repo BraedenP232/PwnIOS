@@ -10,13 +10,13 @@ Connect your iPhone or iPad to your Pwnagotchi over WebSocket and get live stats
 
 - **Live dashboard** — uptime, battery, temperature, mode, and connection status
 - **Screen mirroring** — mirror the Pwnagotchi display directly on your iOS device
-- **Network monitoring** — discovered access points and handshake status
-- **GPS sharing** — send iOS location data to Pwnagotchi for wardriving
-- **GPS logging** — save location data for later use and WiGLE-compatible exports
-- **Events** — live activity and connection log
+- **Network monitoring** — discovered access points and current-session handshakes
+- **GPS sharing** — send occasional or live iOS location updates to Pwnagotchi
+- **Handshake location** — write the latest coordinates beside captured handshakes
+- **Events** — a focused activity log with optional verbose detail
 - **Remote control** — switch modes and reboot Pwnagotchi remotely
 - **PiSugar support** — battery monitoring through PiSugar
-- **WebSocket connection** — automatic reconnect, message queuing, and retry handling
+- **WebSocket connection** — resilient reconnect, heartbeat, and clean shutdown handling
 
 ---
 
@@ -25,6 +25,13 @@ Connect your iPhone or iPad to your Pwnagotchi over WebSocket and get live stats
 - iOS **16.0+**
 - [jayofelony's Pwnagotchi fork](https://github.com/jayofelony/pwnagotchi)
 - iPhone or iPad with Bluetooth tethering enabled
+- Python **3.13** with the [`websockets`](https://websockets.readthedocs.io/) package
+
+PwnIOS 2.0.0 is tested with Python 3.13.5 and `websockets` 17.0.1. Verify the package in Pwnagotchi's own Python environment:
+
+```bash
+/opt/.pwn/bin/python3 -c "import websockets; print(websockets.__version__)"
+```
 
 ---
 
@@ -34,14 +41,13 @@ Connect your iPhone or iPad to your Pwnagotchi over WebSocket and get live stats
 
 #### Manual installation
 
-SSH into your Pwnagotchi and create the plugin file:
+SSH into your Pwnagotchi and copy `pwnios.py` into the custom plugin directory configured by your image. For example:
 
 ```bash
-cd /etc/pwnagotchi/custom-plugins/
-sudo nano pwnios.py
+cp pwnios.py ~/custom-plugins/pwnios.py
 ```
 
-Copy the contents of [`pwnios.py`](https://github.com/BraedenP232/PwnIOS/blob/main/pwnios.py) into the file and save.
+The location may differ between images. Use the same directory as your other working custom plugins.
 
 #### Plugin repository
 
@@ -77,6 +83,7 @@ Add or modify the PwnIOS configuration:
 enabled = true
 
 # Display
+host = "0.0.0.0"
 port = 8082
 display = false
 display_gps = false
@@ -87,7 +94,6 @@ pisugar = false
 # GPS
 save_gps_log = true
 gps_log_path = "/tmp/pwnagotchi_gps.log"
-gps_altitude = 10
 ```
 
 ### Configuration options
@@ -95,15 +101,13 @@ gps_altitude = 10
 | Option | Default | Description |
 |---|---:|---|
 | `enabled` | `true` | Enable the PwnIOS plugin |
+| `host` | `0.0.0.0` | Interface on which the WebSocket server listens |
 | `port` | `8082` | WebSocket server port |
 | `display` | `false` | Display iOS connection status on Pwnagotchi |
 | `display_gps` | `false` | Display GPS coordinates on Pwnagotchi |
 | `pisugar` | `false` | Enable PiSugar battery monitoring |
 | `save_gps_log` | `true` | Save GPS data to a log file |
 | `gps_log_path` | `/tmp/pwnagotchi_gps.log` | GPS log file location |
-| `gps_altitude` | `10` | Fallback altitude in metres for GPS exports |
-
-> `gps_altitude` is used because iOS currently does not provide altitude data to PwnIOS. The value is written to the `.gps.json` data used for WiGLE-compatible exports.
 
 ---
 
@@ -150,7 +154,7 @@ View discovered access points and handshake activity in real time.
 
 Share your iOS device's GPS location with Pwnagotchi.
 
-GPS data can also be logged for later use and exported in a format compatible with WiGLE uploads.
+GPS data can also be logged for later use and written to a `.gps.json` sidecar when a handshake is captured.
 
 ### Events
 
@@ -158,7 +162,7 @@ View connection events and Pwnagotchi activity as they happen.
 
 ### Settings
 
-Configure the connection, logging, and debugging options.
+Configure the connection, appearance, location sharing, and notifications.
 
 ---
 
@@ -172,6 +176,8 @@ Check the following:
 2. The PwnIOS plugin is enabled in `config.toml`.
 3. Pwnagotchi has been restarted after installing or changing the plugin.
 4. Your iOS device is connected to the Pwnagotchi's Bluetooth network.
+5. Port `8082` is listening: `sudo ss -lntp | grep ':8082'`.
+6. The plugin reports a startup line in `pwnlog | grep -i pwnios`.
 
 If Bluetooth tethering itself is unreliable, see this [Pwnagotchi tethering writeup](https://www.reddit.com/r/pwnagotchi/comments/1m4riyn/bluetooth_tethering_issues_try_this_fix/).
 
@@ -179,7 +185,7 @@ If Bluetooth tethering itself is unreliable, see this [Pwnagotchi tethering writ
 
 Keep the iOS device close to the Pwnagotchi and check the Pwnagotchi's power stability.
 
-Enable debug logging in the app if you need to determine whether the problem is related to Bluetooth tethering, the WebSocket connection, or the Pwnagotchi itself.
+Check `pwnlog | grep -i pwnios` to determine whether the problem is the Bluetooth route, WebSocket listener, or plugin startup.
 
 ### Face or screen isn't updating
 
@@ -194,46 +200,21 @@ Restarting both the Pwnagotchi and the app can also clear a stale connection.
 
 ---
 
-## What's New — v1.0.4.0
+## What's New — v2.0.0
 
-### Configuration
+### WebSocket compatibility and resilience
 
-- Updated the configuration example to use the current TOML table syntax:
-  ```toml
-  [main.plugins.pwnios]
-  ```
-- Added the `gps_altitude` configuration option.
+- Updated the server for Python 3.13 and the modern `websockets.asyncio.server` API.
+- Added deterministic server startup and shutdown across the plugin's background event-loop thread.
+- Improved heartbeat, client cleanup, broadcasting, and connection health behavior.
+- Added a server hello message so the app can identify plugin and protocol versions.
 
-### GPS
+### Companion data
 
-- `_handle_gps_data` now captures altitude.
-- Uses `gps_altitude` as a fallback because iOS does not currently provide altitude data.
-- `gps_export` now includes the required `Altitude` field.
-- Renamed `Timestamp` to `Updated` in GPS exports.
-
-The GPS export now uses the field names expected by WiGLE:
-
-```text
-Latitude
-Longitude
-Altitude
-Accuracy
-Updated
-```
-
-This fixes WiGLE CSV uploads rather than simply changing the field names for consistency.
-
-### UI
-
-- Added `ui._lock` protection to:
-  - `on_ui_setup`
-  - `on_ui_update`
-  - `on_unload`
-- Updated UI handling to match the current Pwnagotchi default-plugin convention.
-- `on_unload` now properly deregisters:
-  - `ios_clients`
-  - `gps_long`
-  - `gps_lat`
+- Added current-session handshake retrieval for the app's handshake view.
+- Improved AUTO/MANU mode reporting by reading the runtime mode used by Pwnagotchi.
+- Preserved GPS sharing, per-handshake GPS exports, face updates, PiSugar data, and remote controls.
+- Reduced noisy routine logging while retaining useful lifecycle and error messages.
 
 ---
 

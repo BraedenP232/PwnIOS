@@ -2,6 +2,7 @@ import json
 import logging
 import asyncio
 import websockets
+from websockets.asyncio.server import serve
 import threading
 import base64
 import os
@@ -23,19 +24,20 @@ from pwnagotchi.ui.view import BLACK
 #     "https://github.com/BraedenP232/pwnios/archive/main.zip",
 # ]
 
-### REQUIRED ###
-# main.plugins.pwnios.enabled = true
-# main.plugins.pwnios.port = 8082
-# main.plugins.pwnios.display = true
-# main.plugins.pwnios.display_gps = true
+#[main.plugins.pwnios]
+#enabled = true
 
-### OPTIONAL ###
-## PiSugar ##
-# main.plugins.pwnios.pisugar = true  # Enable PiSugar battery monitoring
-## GPS ##
-# main.plugins.pwnios.save_gps_log = false  # Enable GPS logging to file
-# main.plugins.pwnios.gps_log_path = /path/to/gps.log # /tmp/pwnagotchi_gps.log is set by default
+# Display
+#port = 8082
+#display = false
+#display_gps = false
 
+# PiSugar
+#pisugar = false
+
+# GPS
+#save_gps_log = true
+#gps_log_path = "/tmp/pwnagotchi_gps.log"
 
 # Use MockPiSugarModule initially or else PiSugar import errors will occur at startup
 class _MockPiSugarModule:
@@ -58,7 +60,7 @@ PISUGAR_AVAILABLE = False
 
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
-    __version__ = "1.0.3.1"
+    __version__ = "2.0.0"
     __license__ = "GPL3"
     __description__ = "Plugin for iOS companion app to display Pwnagotchi stats, share GPS, and control features."
 
@@ -77,6 +79,7 @@ class PwnIOS(plugins.Plugin):
         self.loop = None
         self.message_queue = None
         self.server_thread = None
+        self.server_stopped = None
         
         self.broadcaster_task = None
         self.heartbeat_task = None
@@ -87,6 +90,7 @@ class PwnIOS(plugins.Plugin):
         self.last_face = None
         self.last_status = None
         self.ui_update_counter = 0
+        self.session_handshakes = []
 
     def _init_pisugar(self):
         # Read user config
@@ -150,7 +154,7 @@ class PwnIOS(plugins.Plugin):
 
     def on_ready(self, agent):
         self.agent = agent
-        logging.info("[PwnIOS] Agent ready")
+        logging.info(f"[PwnIOS] Agent ready (runtime mode: {self._get_runtime_mode()})")
 
     def on_unload(self, ui):
         logging.info("[PwnIOS] Plugin unloading...")
@@ -229,36 +233,17 @@ class PwnIOS(plugins.Plugin):
         }))
 
     def _cleanup_resources(self):
-        if self.websocket_server:
-            try: self.websocket_server.close()
-            except: pass
-            
-        for task in [self.broadcaster_task, self.heartbeat_task]:
-            if task:
-                try: task.cancel()
-                except: pass
-                
-        for client in self.connected_clients.copy():
-            try:
-                # Only use run_coroutine_threadsafe when we have a valid running loop
-                if self.loop is not None and getattr(self.loop, "is_running", lambda: False)():
-                    asyncio.run_coroutine_threadsafe(client.close(), self.loop)
-                else:
-                    # No event loop available to schedule on: try to close synchronously
-                    try:
-                        asyncio.run(client.close())
-                    except Exception:
-                        # If asyncio.run fails (e.g. already in an event loop), try best-effort close
-                        try:
-                            close_ret = client.close()
-                            # close_ret may be a coroutine; if so, ignore as last resort
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-            
-        self.connected_clients.clear()
-        self.client_health.clear()
+        loop = self.loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._request_server_stop)
+        elif self.websocket_server is not None:
+            self.websocket_server.close()
+
+    def _request_server_stop(self):
+        if self.websocket_server is not None:
+            self.websocket_server.close()
+        if self.server_stopped is not None:
+            self.server_stopped.set()
 
     def queue_message(self, message):
         try:
@@ -286,21 +271,32 @@ class PwnIOS(plugins.Plugin):
     async def _run_server(self):
         try:
             self.message_queue = asyncio.Queue()
+            self.server_stopped = asyncio.Event()
             self.broadcaster_task = asyncio.create_task(self._message_broadcaster())
             self.heartbeat_task = asyncio.create_task(self._heartbeat_checker())
-            
-            self.websocket_server = await websockets.serve(
-                self._handle_client, "0.0.0.0", 8082,
+
+            host = str(self.options.get("host", "0.0.0.0"))
+            port = int(self.options.get("port", 8082))
+            self.websocket_server = await serve(
+                self._handle_client, host, port,
                 ping_interval=30, ping_timeout=20, close_timeout=10,
                 max_size=2**20, compression=None, max_queue=32
             )
-            
-            logging.info("[PwnIOS] WebSocket server started on port 8082")
-            await self.websocket_server.wait_closed()
-            
-        except Exception as e:
-            logging.error(f"[PwnIOS] Server error: {e}")
+
+            sockets = self.websocket_server.sockets or []
+            addresses = ", ".join(str(sock.getsockname()) for sock in sockets)
+            logging.info(
+                "[PwnIOS] WebSocket server %s started on %s (websockets %s)",
+                self.__version__, addresses or f"{host}:{port}", websockets.__version__
+            )
+            await self.server_stopped.wait()
+
+        except Exception:
+            logging.exception("[PwnIOS] WebSocket server failed to start or stopped unexpectedly")
         finally:
+            if self.websocket_server is not None:
+                self.websocket_server.close()
+                await self.websocket_server.wait_closed()
             await self._cleanup_server_tasks()
 
     async def _cleanup_server_tasks(self):
@@ -317,6 +313,16 @@ class PwnIOS(plugins.Plugin):
         logging.info(f"[PwnIOS] iOS client connected: {client_addr}")
         
         try:
+            await websocket.send(json.dumps({
+                "type": "hello",
+                "protocol_version": 2,
+                "plugin_version": self.__version__,
+                "capabilities": [
+                    "command_results", "stats", "access_points",
+                    "face_status", "face_image", "gps_data", "handshake_history"
+                ],
+                "authentication_required": False
+            }))
             await self._send_initial_data(websocket)
             
             async for message in websocket:
@@ -405,7 +411,7 @@ class PwnIOS(plugins.Plugin):
                 dead_clients.add(client)
 
         await asyncio.gather(
-            *[send_to_client(client) for client in list(self.connected_clients)], 
+            *[send_to_client(client) for client in list(self.connected_clients)],
             return_exceptions=True
         )
         
@@ -429,6 +435,7 @@ class PwnIOS(plugins.Plugin):
         handlers = {
             'get_stats': lambda: self._send_stats(websocket),
             'get_access_points': lambda: self._send_access_points(websocket),
+            'get_handshakes': lambda: self._send_handshakes(websocket),
             'get_face_status': lambda: self._send_face_status(websocket),
             'get_face_image': lambda: self._handle_face_image_request(websocket),
             'set_mode': lambda: self._handle_set_mode(websocket, data),
@@ -507,7 +514,7 @@ class PwnIOS(plugins.Plugin):
             self.agent._state = 'bored'
         else:
             await websocket.send(json.dumps({
-                "type": "response", 
+                "type": "response",
                 "message": "Bored state not supported"
             }))
 
@@ -522,10 +529,10 @@ class PwnIOS(plugins.Plugin):
 
     async def _handle_face_image_request(self, websocket):
         try:
-            logging.info("[PwnIOS] get_face_image request received")
+            logging.debug("[PwnIOS] get_face_image request received")
             
             face_name, status = self._get_current_face_and_status()
-            logging.info(f"[PwnIOS] Current face: {face_name}, status: {status}")
+            logging.debug(f"[PwnIOS] Current face: {face_name}, status: {status}")
             
             image_data = self._get_face_image(face_name)
             
@@ -539,12 +546,12 @@ class PwnIOS(plugins.Plugin):
             }
             
             await websocket.send(json.dumps(response))
-            logging.info("[PwnIOS] Face image sent successfully")
+            logging.debug("[PwnIOS] Face image sent successfully")
             
         except Exception as e:
             logging.error(f"[PwnIOS] get_face_image error: {e}")
             await websocket.send(json.dumps({
-                "type": "face_image", 
+                "type": "face_image",
                 "data": None,
                 "error": str(e)
             }))
@@ -575,7 +582,7 @@ class PwnIOS(plugins.Plugin):
             'battery': self._get_battery_info(),
             'temperature': self._get_temperature(),
             'channel': 1,
-            'mode': 'AUTO',
+            'mode': self._get_runtime_mode(),
             'status': 'ready',
             'handshakes': 0,
             'peers': 0,
@@ -656,18 +663,46 @@ class PwnIOS(plugins.Plugin):
                     aps = self.agent._access_points
                     stats['accessPoints'] = len(aps) if aps else 0
 
-                if hasattr(self.agent, 'mode'):
-                    if self.agent.mode == 'manual':
-                        stats['mode'] = "MANUAL"
-                    else:
-                        stats['mode'] = "AUTO"
-                elif hasattr(self.agent, '_mode'):
-                    stats['mode'] = str(self.agent._mode).upper()
-
             except Exception as e:
                 logging.error(f"[PwnIOS] Error getting agent stats: {e}")
 
+        if self.session_handshakes:
+            stats['handshakes'] = max(stats['handshakes'], len(self.session_handshakes))
+            stats['lastHandshake'] = self.session_handshakes[-1]
+
         return stats
+
+    def _get_runtime_mode(self):
+        """Return the mode selected by the Pwnagotchi launcher."""
+        # MANU mode does not fire the ready plugin event. The upstream launcher
+        # selects it with --manual, making the process arguments authoritative.
+        arguments = {str(argument).strip().lower() for argument in sys.argv}
+        if '--manual' in arguments:
+            return 'MANU'
+
+        # Retain compatibility with versions that expose mode on the callback
+        # object or through a private mode property.
+        if self.agent is not None:
+            for attribute in ('mode', '_mode'):
+                try:
+                    raw_mode = getattr(self.agent, attribute, None)
+                    if callable(raw_mode):
+                        raw_mode = raw_mode()
+                    normalized = str(raw_mode or '').strip().lower()
+                    if normalized in ('manual', 'manu'):
+                        return 'MANU'
+                    if normalized in ('auto', 'automatic'):
+                        return 'AUTO'
+                except Exception:
+                    continue
+
+        return 'AUTO'
+
+    async def _send_handshakes(self, websocket):
+        await websocket.send(json.dumps({
+            "type": "handshakes",
+            "data": list(reversed(self.session_handshakes))
+        }))
 
     async def _send_access_points(self, websocket):
         access_points = []
@@ -705,16 +740,16 @@ class PwnIOS(plugins.Plugin):
                 logging.error(f"[PwnIOS] Error getting access points from agent: {e}")
 
         await websocket.send(json.dumps({
-            "type": "access_points", 
+            "type": "access_points",
             "data": access_points
         }))
 
     async def _send_face_status(self, websocket):
         face, status = self._get_current_face_and_status()
         await websocket.send(json.dumps({
-            "type": "face_status", 
+            "type": "face_status",
             "data": {
-                "face": face, 
+                "face": face,
                 "status": status,
                 "timestamp": datetime.now().isoformat()
             }
@@ -845,7 +880,7 @@ class PwnIOS(plugins.Plugin):
         return "N/A"
 
     def _get_face_image(self, face_name):
-        logging.info(f"[PwnIOS] Requesting face image for: '{face_name}'")
+        logging.debug(f"[PwnIOS] Requesting face image for: '{face_name}'")
         if not face_name:
             current_face, _ = self._get_current_face_and_status()
             face_name = current_face
@@ -858,8 +893,8 @@ class PwnIOS(plugins.Plugin):
             except Exception as e:
                 logging.error(f"[PwnIOS] Agent face image error: {e}")
 
-        if (not face_name or 
-            any(ord(char) > 127 for char in face_name) or 
+        if (not face_name or
+            any(ord(char) > 127 for char in face_name) or
             len(face_name) > 20):
             current_face, _ = self._get_current_face_and_status()
             face_name = current_face
@@ -874,7 +909,7 @@ class PwnIOS(plugins.Plugin):
                     try:
                         with open(full_path, "rb") as f:
                             encoded = base64.b64encode(f.read()).decode("utf-8")
-                            logging.info(f"[PwnIOS] Found face image: {full_path}")
+                            logging.debug(f"[PwnIOS] Found face image: {full_path}")
                             return encoded
                     except Exception as e:
                         logging.error(f"[PwnIOS] Error reading face file {full_path}: {e}")
@@ -917,6 +952,10 @@ class PwnIOS(plugins.Plugin):
             'timestamp': datetime.now().isoformat()
         }
         
+        self.session_handshakes.append(handshake_data)
+        if len(self.session_handshakes) > 100:
+            self.session_handshakes = self.session_handshakes[-100:]
+
         # Add GPS data to handshake if available
         if self.gps_data and self.gps_enabled:
             handshake_data['gps'] = {
@@ -927,22 +966,22 @@ class PwnIOS(plugins.Plugin):
         
         face, status = self._get_current_face_and_status()
         self.queue_message({
-            "type": "handshake", 
-            "data": handshake_data, 
-            "face": face, 
+            "type": "handshake",
+            "data": handshake_data,
+            "face": face,
             "status": status
         })
 
     def on_peer_detected(self, agent, peer):
         peer_data = {
-            'peer': str(peer), 
+            'peer': str(peer),
             'timestamp': datetime.now().isoformat()
         }
         face, status = self._get_current_face_and_status()
         self.queue_message({
-            "type": "peer_detected", 
-            "data": peer_data, 
-            "face": face, 
+            "type": "peer_detected",
+            "data": peer_data,
+            "face": face,
             "status": status
         })
 
@@ -969,7 +1008,7 @@ class PwnIOS(plugins.Plugin):
                 })
         
         self.queue_message({
-            "type": "wifi_update", 
+            "type": "wifi_update",
             "data": {
                 "count": len(access_points),
                 "access_points": formatted_aps
@@ -1011,13 +1050,13 @@ class PwnIOS(plugins.Plugin):
     def on_ui_setup(self, ui):
         if self.options.get('display'):
             ui.add_element(
-                'ios_clients', 
+                'ios_clients',
                 LabeledValue(
-                    color=BLACK, 
-                    label='iOS:', 
+                    color=BLACK,
+                    label='iOS:',
                     value='0',
                     position=(125, 78),
-                    label_font=fonts.Small, 
+                    label_font=fonts.Small,
                     text_font=fonts.Small,
                     label_spacing=0,
                 ))
@@ -1072,7 +1111,7 @@ class PwnIOS(plugins.Plugin):
             current_face, current_status = self._get_current_face_and_status()
             
             if (current_face != self.last_face or current_status != self.last_status):
-                logging.info(f"[PwnIOS] UI Update - Face changed from '{self.last_face}' to '{current_face}', Status: '{current_status}'")
+                logging.debug(f"[PwnIOS] UI Update - Face changed from '{self.last_face}' to '{current_face}', Status: '{current_status}'")
                 self.last_face = current_face
                 self.last_status = current_status
                 
