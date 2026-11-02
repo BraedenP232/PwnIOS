@@ -10,7 +10,6 @@ import hmac
 import pwnagotchi
 from datetime import datetime
 import time
-import importlib.util
 import sys
 
 import pwnagotchi.plugins as plugins
@@ -62,9 +61,6 @@ class _MockPiSugarModule:
         def get_battery_charging(self) -> bool:
             return False
 
-PISUGAR_AVAILABLE = False
-
-
 class PwnIOS(plugins.Plugin):
     __author__ = "PellTech"
     __version__ = "2.0.0"
@@ -75,11 +71,11 @@ class PwnIOS(plugins.Plugin):
         self.running = False
         self.agent = None
         self.start_time = datetime.now()
-        
+
         self.gps_data = None
         self.gps_enabled = False
         self.last_gps_update = None
-        
+
         self.websocket_server = None
         self.connected_clients = set()
         self.authenticated_clients = set()
@@ -88,13 +84,11 @@ class PwnIOS(plugins.Plugin):
         self.message_queue = None
         self.server_thread = None
         self.server_stopped = None
-        
+
         self.broadcaster_task = None
         self.heartbeat_task = None
-        
+
         self.pisugar = None
-        self.pisugar_error = None
-        
         self.last_face = None
         self.last_status = None
         self.ui_update_counter = 0
@@ -148,15 +142,9 @@ class PwnIOS(plugins.Plugin):
     def on_loaded(self):
         self.running = True
         logging.info("[PwnIOS] Plugin loaded")
-        
+
         self._init_pisugar()
-        
-        # Log PiSugar status
-        if self.pisugar_error:
-            logging.warning(f"[PwnIOS] Battery monitoring unavailable: {self.pisugar_error}")
-        elif PISUGAR_AVAILABLE:
-            logging.info("[PwnIOS] Battery monitoring available")
-        
+
         self.server_thread = threading.Thread(target=self._start_websocket_server, daemon=True)
         self.server_thread.start()
 
@@ -169,7 +157,7 @@ class PwnIOS(plugins.Plugin):
         self.running = False
         self._cleanup_resources()
         logging.info("[PwnIOS] Plugin unloaded")
-        
+
     async def _handle_gps_data(self, websocket, full_message_data):
         try:
             gps_payload = full_message_data.get('data', {})
@@ -192,7 +180,7 @@ class PwnIOS(plugins.Plugin):
             logging.info(f"[PwnIOS] GPS data received: {self.gps_data['latitude']:.6f}, {self.gps_data['longitude']:.6f}")
 
             if self.options.get('save_gps_log', False):
-                await self._save_gps_log(self.gps_data)
+                self._save_gps_log(self.gps_data)
 
             await self._broadcast_to_clients({
                 "type": "gps_update",
@@ -202,7 +190,7 @@ class PwnIOS(plugins.Plugin):
         except Exception as e:
             logging.error(f"[PwnIOS] GPS data error: {e}")
             await self._send_error(websocket, f"GPS data error: {str(e)}")
-            
+
     def _get_gps_data(self):
         if not self.gps_data or not self.gps_enabled:
             return None
@@ -214,8 +202,8 @@ class PwnIOS(plugins.Plugin):
                 return None
 
         return self.gps_data
-    
-    async def _save_gps_log(self, gps_data):
+
+    def _save_gps_log(self, gps_data):
         try:
             log_path = self.options.get('gps_log_path', '/tmp/pwnagotchi_gps.log')
 
@@ -231,7 +219,7 @@ class PwnIOS(plugins.Plugin):
 
         except Exception as e:
             logging.error(f"[PwnIOS] GPS log save error: {e}")
-            
+
     async def _send_gps_data(self, websocket):
         gps_data = self._get_gps_data()
         await websocket.send(json.dumps({
@@ -320,7 +308,7 @@ class PwnIOS(plugins.Plugin):
         self.client_health[websocket] = time.time()
         authentication_required = bool(self.options.get("authentication_required", False))
         logging.info(f"[PwnIOS] iOS client connected: {client_addr}")
-        
+
         try:
             await websocket.send(json.dumps({
                 "type": "hello",
@@ -336,7 +324,7 @@ class PwnIOS(plugins.Plugin):
             if not authentication_required:
                 self.authenticated_clients.add(websocket)
                 await self._send_initial_data(websocket)
-            
+
             async for message in websocket:
                 try:
                     self.client_health[websocket] = time.time()
@@ -347,7 +335,7 @@ class PwnIOS(plugins.Plugin):
                     await self._send_error(websocket, "Invalid JSON format")
                 except Exception as e:
                     logging.error(f"[PwnIOS] Message error: {e}")
-                    
+
         except websockets.exceptions.ConnectionClosed:
             logging.info(f"[PwnIOS] Client disconnected normally: {client_addr}")
         except Exception as e:
@@ -383,12 +371,12 @@ class PwnIOS(plugins.Plugin):
             try:
                 await asyncio.sleep(45)
                 current_time = time.time()
-                
+
                 stale_clients = [
                     client for client, last_seen in self.client_health.items()
                     if current_time - last_seen > 60
                 ]
-                
+
                 for client in stale_clients:
                     logging.info(f"[PwnIOS] Removing stale client: {client.remote_address}")
                     self.connected_clients.discard(client)
@@ -396,13 +384,13 @@ class PwnIOS(plugins.Plugin):
                     self.client_health.pop(client, None)
                     try: await client.close()
                     except: pass
-                
+
                 if self.connected_clients:
                     await self._broadcast_to_clients({
                         "type": "keepalive",
                         "timestamp": current_time
                     })
-                    
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -411,7 +399,7 @@ class PwnIOS(plugins.Plugin):
     async def _broadcast_to_clients(self, message):
         if not self.connected_clients:
             return
-            
+
         json_message = json.dumps(message)
         dead_clients = set()
 
@@ -429,7 +417,7 @@ class PwnIOS(plugins.Plugin):
             *[send_to_client(client) for client in list(self.authenticated_clients)],
             return_exceptions=True
         )
-        
+
         for client in dead_clients:
             self.connected_clients.discard(client)
             self.authenticated_clients.discard(client)
@@ -455,7 +443,7 @@ class PwnIOS(plugins.Plugin):
         if websocket not in self.authenticated_clients:
             await self._send_error(websocket, "Authentication required")
             return
-        
+
         handlers = {
             'get_stats': lambda: self._send_stats(websocket),
             'get_access_points': lambda: self._send_access_points(websocket),
@@ -471,7 +459,7 @@ class PwnIOS(plugins.Plugin):
             'gps_data': lambda: self._handle_gps_data(websocket, data),
             'get_gps_data': lambda: self._send_gps_data(websocket),
         }
-        
+
         try:
             handler = handlers.get(msg_type)
             if handler:
@@ -540,7 +528,7 @@ class PwnIOS(plugins.Plugin):
                 subprocess.run(['sudo', 'reboot'], check=True)
             except Exception as e:
                 logging.error(f"[PwnIOS] System reboot error: {e}")
-                
+
     async def _handle_shutdown(self, websocket):
         if self.agent and hasattr(self.agent, 'shutdown'):
             try:
@@ -580,12 +568,12 @@ class PwnIOS(plugins.Plugin):
     async def _handle_face_image_request(self, websocket):
         try:
             logging.debug("[PwnIOS] get_face_image request received")
-            
+
             face_name, status = self._get_current_face_and_status()
             logging.debug(f"[PwnIOS] Current face: {face_name}, status: {status}")
-            
+
             image_data = self._get_face_image(face_name)
-            
+
             response = {
                 "type": "face_image",
                 "data": image_data,
@@ -594,10 +582,10 @@ class PwnIOS(plugins.Plugin):
                 "status": status,
                 "timestamp": time.time()
             }
-            
+
             await websocket.send(json.dumps(response))
             logging.debug("[PwnIOS] Face image sent successfully")
-            
+
         except Exception as e:
             logging.error(f"[PwnIOS] get_face_image error: {e}")
             await websocket.send(json.dumps({
@@ -610,7 +598,7 @@ class PwnIOS(plugins.Plugin):
         try:
             stats = self._get_stats_from_agent()
             face, status = self._get_current_face_and_status()
-            
+
             response = {
                 "type": "stats",
                 "data": stats,
@@ -618,10 +606,10 @@ class PwnIOS(plugins.Plugin):
                 "status": status,
                 "timestamp": time.time()
             }
-            
+
             await websocket.send(json.dumps(response))
             logging.debug(f"[PwnIOS] Stats sent to {websocket.remote_address}")
-            
+
         except Exception as e:
             logging.error(f"[PwnIOS] Error sending stats: {e}")
             await self._send_error(websocket, f"Error getting stats: {str(e)}")
@@ -674,7 +662,7 @@ class PwnIOS(plugins.Plugin):
                             stats['uptime'] = self._parse_uptime_string(uptime_str)
                             logging.debug(f"[PwnIOS] Got uptime from callable view: {uptime_str} -> {stats['uptime']} seconds")
 
-                
+
                 if hasattr(self.agent, 'session') and self.agent.session():
                     stats['channel'] = getattr(self.agent.session(), 'channel', 1)
 
@@ -766,25 +754,7 @@ class PwnIOS(plugins.Plugin):
                 else:
                     raw_aps = []
 
-                for ap in raw_aps:
-                    if isinstance(ap, dict):
-                        access_points.append({
-                            'bssid': ap.get('bssid', ''),
-                            'hostname': ap.get('hostname', ap.get('ssid', '')),
-                            'channel': ap.get('channel', 0),
-                            'rssi': ap.get('rssi', 0),
-                            'encryption': ap.get('encryption', ''),
-                            'vendor': ap.get('vendor', '')
-                        })
-                    else:
-                        access_points.append({
-                            'bssid': str(ap),
-                            'hostname': str(ap),
-                            'channel': 0,
-                            'rssi': 0,
-                            'encryption': '',
-                            'vendor': ''
-                        })
+                access_points = [self._serialize_access_point(ap) for ap in raw_aps]
 
             except Exception as e:
                 logging.error(f"[PwnIOS] Error getting access points from agent: {e}")
@@ -793,6 +763,28 @@ class PwnIOS(plugins.Plugin):
             "type": "access_points",
             "data": access_points
         }))
+
+    @staticmethod
+    def _serialize_access_point(access_point):
+        if isinstance(access_point, dict):
+            return {
+                'bssid': access_point.get('bssid', ''),
+                'hostname': access_point.get('hostname', access_point.get('ssid', '')),
+                'channel': access_point.get('channel', 0),
+                'rssi': access_point.get('rssi', 0),
+                'encryption': access_point.get('encryption', ''),
+                'vendor': access_point.get('vendor', '')
+            }
+
+        value = str(access_point)
+        return {
+            'bssid': value,
+            'hostname': value,
+            'channel': 0,
+            'rssi': 0,
+            'encryption': '',
+            'vendor': ''
+        }
 
     async def _send_face_status(self, websocket):
         face, status = self._get_current_face_and_status()
@@ -832,7 +824,7 @@ class PwnIOS(plugins.Plugin):
 
                     status = status_val.strip()
                     return face_name, status
-                
+
                 if hasattr(self.agent, 'state'):
                     state = self.agent.state
                 elif hasattr(self.agent, '_state'):
@@ -862,7 +854,7 @@ class PwnIOS(plugins.Plugin):
             'look_l': 'LOOK-L', 'look_r_happy': 'LOOK-R-HAPPY',
             'look_l_happy': 'LOOK-L-HAPPY'
         }
-        
+
     def _parse_uptime_string(self, uptime_str):
         try:
             if isinstance(uptime_str, str) and ':' in uptime_str:
@@ -885,17 +877,15 @@ class PwnIOS(plugins.Plugin):
             # Check if we have a functional PiSugar instance
             if self.pisugar is None:
                 return "N/A (No PiSugar)"
-            
+
             # Try to get battery level
             try:
                 level = self.pisugar.battery_level
-                
+
                 # Check for None or invalid values
                 if level is None:
-                    if self.pisugar_error:
-                        return f"N/A ({self.pisugar_error[:30]}...)"
                     return "N/A (Device not found)"
-                
+
                 # Try to get charging status
                 try:
                     charging = self.pisugar.battery_charging
@@ -903,20 +893,18 @@ class PwnIOS(plugins.Plugin):
                         charging = False
                 except (AttributeError, TypeError):
                     charging = False
-                
+
                 status = "Charging" if charging else "Discharging"
                 return f"{round(level, 1)}% ({status})"
-                
+
             except AttributeError as ae:
                 # Handle 'NoneType' object has no attribute errors
                 if "'NoneType' object has no attribute" in str(ae):
-                    if "No PiSugar device was found" in str(self.pisugar_error or ""):
-                        return "N/A (Update pisugarx.py)"
                     return "N/A (Device offline)"
                 else:
                     logging.warning(f"[PwnIOS] Battery attribute error: {ae}")
                     return "N/A (Attr error)"
-                    
+
         except Exception as e:
             logging.warning(f"[PwnIOS] Battery info error: {e}")
             return "N/A"
@@ -965,7 +953,7 @@ class PwnIOS(plugins.Plugin):
                         logging.error(f"[PwnIOS] Error reading face file {full_path}: {e}")
 
         return None
-    
+
     def on_handshake(self, agent, filename, access_point, client_station):
         # Save GPS coordinates if available
         if self.gps_data and self.gps_enabled:
@@ -973,7 +961,7 @@ class PwnIOS(plugins.Plugin):
             logging.info(f"Latitude: {self.gps_data['latitude']}")
             logging.info(f"Longitude: {self.gps_data['longitude']}")
             logging.info(f"Accuracy: {self.gps_data['accuracy']}")
-            
+
             gps_filename = filename.replace(".pcap", ".gps.json")
             # avoid 0.000... measurements
             if all([self.gps_data.get("latitude"), self.gps_data.get("longitude")]):
@@ -993,7 +981,7 @@ class PwnIOS(plugins.Plugin):
                 logging.info("[PwnIOS] not saving GPS. Couldn't find location.")
         else:
             logging.info("[PwnIOS] No GPS data available for handshake.")
-        
+
         # Create handshake data for broadcasting
         handshake_data = {
             'filename': str(filename),
@@ -1001,7 +989,7 @@ class PwnIOS(plugins.Plugin):
             'client_station': str(client_station),
             'timestamp': datetime.now().isoformat()
         }
-        
+
         self.session_handshakes.append(handshake_data)
         if len(self.session_handshakes) > 100:
             self.session_handshakes = self.session_handshakes[-100:]
@@ -1013,7 +1001,7 @@ class PwnIOS(plugins.Plugin):
                 'longitude': self.gps_data['longitude'],
                 'accuracy': self.gps_data.get('accuracy', 0)
             }
-        
+
         face, status = self._get_current_face_and_status()
         self.queue_message({
             "type": "handshake",
@@ -1036,27 +1024,11 @@ class PwnIOS(plugins.Plugin):
         })
 
     def on_wifi_update(self, agent, access_points):
-        formatted_aps = []
-        for ap in access_points[:10]:
-            if isinstance(ap, dict):
-                formatted_aps.append({
-                    'bssid': ap.get('bssid', ''),
-                    'hostname': ap.get('hostname', ap.get('ssid', '')),
-                    'channel': ap.get('channel', 0),
-                    'rssi': ap.get('rssi', 0),
-                    'encryption': ap.get('encryption', ''),
-                    'vendor': ap.get('vendor', '')
-                })
-            else:
-                formatted_aps.append({
-                    'bssid': str(ap),
-                    'hostname': str(ap),
-                    'channel': 0,
-                    'rssi': 0,
-                    'encryption': '',
-                    'vendor': ''
-                })
-        
+        formatted_aps = [
+            self._serialize_access_point(access_point)
+            for access_point in access_points[:10]
+        ]
+
         self.queue_message({
             "type": "wifi_update",
             "data": {
@@ -1082,10 +1054,10 @@ class PwnIOS(plugins.Plugin):
 
     def on_sad(self, agent):
         self._broadcast_status_change('sad')
-        
+
     def _broadcast_status_change(self, status):
         """Helper method to broadcast status changes"""
-        face, current_status = self._get_current_face_and_status()
+        face, _ = self._get_current_face_and_status()
         self.queue_message({
             "type": "status_change",
             "data": {
@@ -1140,7 +1112,7 @@ class PwnIOS(plugins.Plugin):
                 ui.set('ios_clients', 'C')
             else:
                 ui.set('ios_clients', '-')
-                
+
         if self.options.get('display_gps', False):
             gps_data = self._get_gps_data()
             if gps_data and self.gps_enabled:
@@ -1151,7 +1123,7 @@ class PwnIOS(plugins.Plugin):
                 gps_lat = "--"
             ui.set('gps_long', gps_long)
             ui.set('gps_lat', gps_lat)
-        
+
         self.ui_update_counter += 1
         if self.ui_update_counter % 5 == 0:
             self._check_face_status_changes()
@@ -1159,12 +1131,12 @@ class PwnIOS(plugins.Plugin):
     def _check_face_status_changes(self):
         try:
             current_face, current_status = self._get_current_face_and_status()
-            
+
             if (current_face != self.last_face or current_status != self.last_status):
                 logging.debug(f"[PwnIOS] UI Update - Face changed from '{self.last_face}' to '{current_face}', Status: '{current_status}'")
                 self.last_face = current_face
                 self.last_status = current_status
-                
+
                 self.queue_message({
                     "type": "ui_face_update",
                     "data": {
@@ -1175,7 +1147,7 @@ class PwnIOS(plugins.Plugin):
                     "face": current_face,
                     "status": current_status
                 })
-                
+
                 if self.connected_clients:
                     image_data = self._get_face_image(current_face)
                     if image_data:
@@ -1186,6 +1158,6 @@ class PwnIOS(plugins.Plugin):
                             "status": current_status,
                             "timestamp": time.time()
                         })
-                        
+
         except Exception as e:
             logging.error(f"[PwnIOS] Error in _check_face_status_changes: {e}")
