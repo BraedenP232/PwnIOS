@@ -16,6 +16,7 @@ Connect your iPhone or iPad to your Pwnagotchi over WebSocket and get live stats
 - **Events** — a focused activity log with optional verbose detail
 - **Remote control** — switch modes and reboot Pwnagotchi remotely
 - **PiSugar support** — battery monitoring through PiSugar
+- **Optional authentication** — protect the WebSocket endpoint with a shared token
 - **WebSocket connection** — resilient reconnect, heartbeat, and clean shutdown handling
 
 ---
@@ -91,9 +92,14 @@ display_gps = false
 # PiSugar
 pisugar = false
 
+# Authentication (recommended on untrusted networks)
+authentication_required = false
+# auth_token = "replace-with-a-generated-token"
+
 # GPS
 save_gps_log = true
 gps_log_path = "/tmp/pwnagotchi_gps.log"
+gps_altitude = 10
 ```
 
 ### Configuration options
@@ -106,8 +112,19 @@ gps_log_path = "/tmp/pwnagotchi_gps.log"
 | `display` | `false` | Display iOS connection status on Pwnagotchi |
 | `display_gps` | `false` | Display GPS coordinates on Pwnagotchi |
 | `pisugar` | `false` | Enable PiSugar battery monitoring |
+| `authentication_required` | `false` | Require clients to authenticate before receiving data or issuing commands |
+| `auth_token` | unset | Shared authentication token; required when authentication is enabled |
 | `save_gps_log` | `true` | Save GPS data to a log file |
 | `gps_log_path` | `/tmp/pwnagotchi_gps.log` | GPS log file location |
+| `gps_altitude` | `10` | Default altitude included with GPS data when the client does not provide one |
+
+Generate a strong authentication token with:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Enter the same token in the companion app's connection settings.
 
 ---
 
@@ -208,6 +225,7 @@ Restarting both the Pwnagotchi and the app can also clear a stale connection.
 - Added deterministic server startup and shutdown across the plugin's background event-loop thread.
 - Improved heartbeat, client cleanup, broadcasting, and connection health behavior.
 - Added a server hello message so the app can identify plugin and protocol versions.
+- Added optional shared-token authentication negotiated through the server hello message.
 
 ### Companion data
 

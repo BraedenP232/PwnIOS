@@ -6,6 +6,7 @@ from websockets.asyncio.server import serve
 import threading
 import base64
 import os
+import hmac
 import pwnagotchi
 from datetime import datetime
 import time
@@ -35,9 +36,15 @@ from pwnagotchi.ui.view import BLACK
 # PiSugar
 #pisugar = false
 
+# Authentication (optional)
+# Generate a token with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+#authentication_required = true
+#auth_token = "paste-generated-token-here"
+
 # GPS
 #save_gps_log = true
 #gps_log_path = "/tmp/pwnagotchi_gps.log"
+#gps_altitude = 10
 
 # Use MockPiSugarModule initially or else PiSugar import errors will occur at startup
 class _MockPiSugarModule:
@@ -75,6 +82,7 @@ class PwnIOS(plugins.Plugin):
         
         self.websocket_server = None
         self.connected_clients = set()
+        self.authenticated_clients = set()
         self.client_health = {}
         self.loop = None
         self.message_queue = None
@@ -310,6 +318,7 @@ class PwnIOS(plugins.Plugin):
         client_addr = websocket.remote_address
         self.connected_clients.add(websocket)
         self.client_health[websocket] = time.time()
+        authentication_required = bool(self.options.get("authentication_required", False))
         logging.info(f"[PwnIOS] iOS client connected: {client_addr}")
         
         try:
@@ -319,11 +328,14 @@ class PwnIOS(plugins.Plugin):
                 "plugin_version": self.__version__,
                 "capabilities": [
                     "command_results", "stats", "access_points",
-                    "face_status", "face_image", "gps_data", "handshake_history"
+                    "face_status", "face_image", "gps_data", "handshake_history",
+                    "authentication"
                 ],
-                "authentication_required": False
+                "authentication_required": authentication_required
             }))
-            await self._send_initial_data(websocket)
+            if not authentication_required:
+                self.authenticated_clients.add(websocket)
+                await self._send_initial_data(websocket)
             
             async for message in websocket:
                 try:
@@ -342,6 +354,7 @@ class PwnIOS(plugins.Plugin):
             logging.error(f"[PwnIOS] Client error: {e}")
         finally:
             self.connected_clients.discard(websocket)
+            self.authenticated_clients.discard(websocket)
             self.client_health.pop(websocket, None)
             logging.info(f"[PwnIOS] Client disconnected: {client_addr}")
 
@@ -349,6 +362,7 @@ class PwnIOS(plugins.Plugin):
         logging.info("[PwnIOS] Sending initial data")
         await self._send_stats(websocket)
         await self._send_access_points(websocket)
+        await self._send_handshakes(websocket)
         await self._send_face_status(websocket)
 
     async def _message_broadcaster(self):
@@ -378,6 +392,7 @@ class PwnIOS(plugins.Plugin):
                 for client in stale_clients:
                     logging.info(f"[PwnIOS] Removing stale client: {client.remote_address}")
                     self.connected_clients.discard(client)
+                    self.authenticated_clients.discard(client)
                     self.client_health.pop(client, None)
                     try: await client.close()
                     except: pass
@@ -411,12 +426,13 @@ class PwnIOS(plugins.Plugin):
                 dead_clients.add(client)
 
         await asyncio.gather(
-            *[send_to_client(client) for client in list(self.connected_clients)],
+            *[send_to_client(client) for client in list(self.authenticated_clients)],
             return_exceptions=True
         )
         
         for client in dead_clients:
             self.connected_clients.discard(client)
+            self.authenticated_clients.discard(client)
             self.client_health.pop(client, None)
 
     async def _send_error(self, websocket, error_message):
@@ -431,6 +447,14 @@ class PwnIOS(plugins.Plugin):
     async def _handle_client_message(self, websocket, data):
         msg_type = data.get('type')
         message_id = data.get('message_id')
+
+        if msg_type == 'auth':
+            await self._handle_authentication(websocket, data)
+            return
+
+        if websocket not in self.authenticated_clients:
+            await self._send_error(websocket, "Authentication required")
+            return
         
         handlers = {
             'get_stats': lambda: self._send_stats(websocket),
@@ -463,6 +487,32 @@ class PwnIOS(plugins.Plugin):
         except Exception as e:
             logging.error(f"[PwnIOS] Error handling message type {msg_type}: {e}")
             await self._send_error(websocket, f"Error processing {msg_type}")
+
+    async def _handle_authentication(self, websocket, data):
+        configured_token = str(self.options.get("auth_token", ""))
+        supplied_token = str(data.get("data", {}).get("token", ""))
+        success = bool(configured_token) and hmac.compare_digest(
+            supplied_token,
+            configured_token
+        )
+
+        if success:
+            self.authenticated_clients.add(websocket)
+            await websocket.send(json.dumps({
+                "type": "auth_result",
+                "success": True
+            }))
+            await self._send_initial_data(websocket)
+        else:
+            logging.warning(
+                "[PwnIOS] Authentication failed for client %s",
+                websocket.remote_address
+            )
+            await websocket.send(json.dumps({
+                "type": "auth_result",
+                "success": False,
+                "error": "Invalid authentication token"
+            }))
 
     async def _handle_set_mode(self, websocket, data):
         mode = data.get('data', {}).get('mode', 'auto').lower()
