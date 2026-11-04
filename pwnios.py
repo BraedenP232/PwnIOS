@@ -11,6 +11,7 @@ import pwnagotchi
 from datetime import datetime
 import time
 import sys
+import math
 
 import pwnagotchi.plugins as plugins
 import pwnagotchi.ui.fonts as fonts
@@ -162,17 +163,37 @@ class PwnIOS(plugins.Plugin):
         try:
             gps_payload = full_message_data.get('data', {})
 
-            if gps_payload.get('latitude') is None or gps_payload.get('longitude') is None:
-                logging.warning("[PwnIOS] Received GPS data with missing latitude or longitude.")
-                await self._send_error(websocket, "GPS data error: latitude or longitude missing.")
+            latitude = gps_payload.get('latitude')
+            longitude = gps_payload.get('longitude')
+            accuracy = gps_payload.get('accuracy')
+            numeric_values = (latitude, longitude)
+
+            if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(value) for value in numeric_values):
+                await self._send_error(websocket, "GPS data error: invalid coordinates.")
+                return
+
+            if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+                await self._send_error(websocket, "GPS data error: coordinates out of range.")
+                return
+
+            if accuracy is not None and (
+                isinstance(accuracy, bool)
+                or not isinstance(accuracy, (int, float))
+                or not math.isfinite(accuracy)
+                or accuracy < 0
+            ):
+                await self._send_error(websocket, "GPS data error: invalid accuracy.")
                 return
 
             self.gps_data = {
                 'enabled': True,
-                'latitude': gps_payload.get('latitude'),
-                'longitude': gps_payload.get('longitude'),
-                'accuracy': gps_payload.get('accuracy'),
-                'last_update': datetime.now().isoformat()
+                'latitude': latitude,
+                'longitude': longitude,
+                'accuracy': accuracy,
+                'last_update': datetime.now().isoformat(),
+                'phone_timestamp': gps_payload.get('timestamp'),
+                'background_strategy': gps_payload.get('backgroundStrategy', 'live')
             }
             self.last_gps_update = datetime.now()
             self.gps_enabled = True
@@ -187,6 +208,12 @@ class PwnIOS(plugins.Plugin):
                 "data": self.gps_data
             })
 
+            await websocket.send(json.dumps({
+                "type": "gps_ack",
+                "message_id": full_message_data.get('message_id'),
+                "accepted_timestamp": self.gps_data['last_update']
+            }))
+
         except Exception as e:
             logging.error(f"[PwnIOS] GPS data error: {e}")
             await self._send_error(websocket, f"GPS data error: {str(e)}")
@@ -197,7 +224,11 @@ class PwnIOS(plugins.Plugin):
 
         if self.last_gps_update:
             time_diff = (datetime.now() - self.last_gps_update).total_seconds()
-            if time_diff > 300:  # 5 minutes
+            default_stale_seconds = (
+                1800 if self.gps_data.get('background_strategy') == 'batterySaver' else 300
+            )
+            stale_seconds = self.options.get('gps_stale_seconds', default_stale_seconds)
+            if time_diff > stale_seconds:
                 self.gps_enabled = False
                 return None
 
@@ -464,7 +495,7 @@ class PwnIOS(plugins.Plugin):
             handler = handlers.get(msg_type)
             if handler:
                 await handler()
-                if message_id:
+                if message_id and msg_type != 'gps_data':
                     await websocket.send(json.dumps({
                         "type": "acknowledgment",
                         "message_id": message_id,
@@ -666,21 +697,6 @@ class PwnIOS(plugins.Plugin):
                 if hasattr(self.agent, 'session') and self.agent.session():
                     stats['channel'] = getattr(self.agent.session(), 'channel', 1)
 
-                if hasattr(self.agent, 'handshakes'):
-                    handshakes = self.agent.handshakes
-                    stats['handshakes'] = len(handshakes) if handshakes else 0
-                    if handshakes and len(handshakes) > 0:
-                        last = list(handshakes.values())[-1] if isinstance(handshakes, dict) else handshakes[-1]
-                        stats['lastHandshake'] = {
-                            'filename': last.get('filename', ''),
-                            'access_point': last.get('access_point', ''),
-                            'client_station': last.get('client_station', ''),
-                            'timestamp': last.get('timestamp', '')
-                        }
-                elif hasattr(self.agent, '_handshakes'):
-                    handshakes = self.agent._handshakes
-                    stats['handshakes'] = len(handshakes) if handshakes else 0
-
                 if hasattr(self.agent, 'peers'):
                     peers = self.agent.peers
                     stats['peers'] = len(peers) if peers else 0
@@ -704,9 +720,9 @@ class PwnIOS(plugins.Plugin):
             except Exception as e:
                 logging.error(f"[PwnIOS] Error getting agent stats: {e}")
 
-        if self.session_handshakes:
-            stats['handshakes'] = max(stats['handshakes'], len(self.session_handshakes))
-            stats['lastHandshake'] = self.session_handshakes[-1]
+        handshakes = self._normalized_handshake_history()
+        stats['handshakes'] = len(handshakes)
+        stats['lastHandshake'] = handshakes[-1] if handshakes else None
 
         return stats
 
@@ -739,8 +755,65 @@ class PwnIOS(plugins.Plugin):
     async def _send_handshakes(self, websocket):
         await websocket.send(json.dumps({
             "type": "handshakes",
-            "data": list(reversed(self.session_handshakes))
+            "data": list(reversed(self._normalized_handshake_history()))
         }))
+
+    def _normalized_handshake_history(self):
+        """Merge agent and plugin-session handshakes into one stable payload."""
+        merged = {}
+
+        def add_handshake(value, fallback_filename=None):
+            if isinstance(value, dict):
+                filename = value.get('filename') or value.get('path') or fallback_filename
+                access_point = value.get('access_point', value.get('ap', value.get('bssid', '')))
+                client_station = value.get('client_station', value.get('client', value.get('station', '')))
+                timestamp = value.get('timestamp', value.get('time', ''))
+            elif isinstance(value, str):
+                filename = value
+                access_point = ''
+                client_station = ''
+                timestamp = ''
+            else:
+                filename = getattr(value, 'filename', None) or fallback_filename
+                access_point = getattr(value, 'access_point', '')
+                client_station = getattr(value, 'client_station', '')
+                timestamp = getattr(value, 'timestamp', '')
+
+            if not filename:
+                return
+
+            normalized = {
+                'filename': str(filename),
+                'access_point': str(access_point or ''),
+                'client_station': str(client_station or ''),
+                'timestamp': str(timestamp or '')
+            }
+            key = normalized['filename']
+            merged.pop(key, None)
+            merged[key] = normalized
+
+        if self.agent:
+            try:
+                agent_handshakes = getattr(self.agent, 'handshakes', None)
+                if agent_handshakes is None:
+                    agent_handshakes = getattr(self.agent, '_handshakes', None)
+                if callable(agent_handshakes):
+                    agent_handshakes = agent_handshakes()
+
+                if isinstance(agent_handshakes, dict):
+                    for filename, handshake in agent_handshakes.items():
+                        add_handshake(handshake, fallback_filename=filename)
+                elif agent_handshakes:
+                    for handshake in agent_handshakes:
+                        add_handshake(handshake)
+            except Exception as error:
+                logging.warning(f"[PwnIOS] Unable to normalize agent handshakes: {error}")
+
+        # Session entries are the newest and most complete representation.
+        for handshake in self.session_handshakes:
+            add_handshake(handshake)
+
+        return list(merged.values())[-100:]
 
     async def _send_access_points(self, websocket):
         access_points = []

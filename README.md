@@ -95,6 +95,8 @@ pisugar = false
 save_gps_log = true
 gps_log_path = "/tmp/pwnagotchi_gps.log"
 gps_altitude = 10
+# Optional: override mode-aware GPS freshness
+# gps_stale_seconds = 300
 ```
 
 ### Configuration options
@@ -110,6 +112,7 @@ gps_altitude = 10
 | `save_gps_log` | `true` | Save GPS data to a log file |
 | `gps_log_path` | `/tmp/pwnagotchi_gps.log` | GPS log file location |
 | `gps_altitude` | `10` | Default altitude included with GPS data when the client does not provide one |
+| `gps_stale_seconds` | 300 Live / 1800 Battery Saver | Override how long the most recent GPS fix remains valid |
 
 ---
 
@@ -213,8 +216,12 @@ Restarting both the Pwnagotchi and the app can also clear a stale connection.
 
 ### Companion data
 
-- Added current-session handshake retrieval for the app's handshake view.
+- Merged Pwnagotchi agent handshakes with captures from the current plugin session.
+- Normalized and deduplicated handshake history by filename, preferring current-session metadata and returning the latest 100 entries.
+- Used the same normalized history for dashboard statistics and the app's handshake view.
 - Improved AUTO/MANU mode reporting by reading the runtime mode used by Pwnagotchi.
+- Added GPS coordinate and accuracy validation plus dedicated acknowledgments for accepted fixes.
+- Added mode-aware GPS freshness: five minutes for Live GPS and 30 minutes for Battery Saver, unless configured otherwise.
 - Preserved GPS sharing, per-handshake GPS exports, face updates, PiSugar data, and remote controls.
 - Reduced noisy routine logging while retaining useful lifecycle and error messages.
 
