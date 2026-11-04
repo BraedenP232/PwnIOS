@@ -764,17 +764,37 @@ class PwnIOS(plugins.Plugin):
 
         def add_handshake(value, fallback_filename=None):
             if isinstance(value, dict):
-                filename = value.get('filename') or value.get('path') or fallback_filename
-                access_point = value.get('access_point', value.get('ap', value.get('bssid', '')))
-                client_station = value.get('client_station', value.get('client', value.get('station', '')))
-                timestamp = value.get('timestamp', value.get('time', ''))
+                # Jayofelony's agent._handshakes stores Bettercap events with
+                # the capture filename inside event["data"]["file"]. The dict
+                # key is "station -> AP", not a filename.
+                event_data = value.get('data')
+                if not isinstance(event_data, dict):
+                    event_data = {}
+
+                filename = (value.get('filename') or value.get('path') or
+                            value.get('file') or event_data.get('file') or
+                            event_data.get('filename'))
+                if not filename and fallback_filename:
+                    # Older agents may use filenames as their dict keys.
+                    candidate = str(fallback_filename)
+                    if os.path.splitext(candidate)[1].lower() in ('.pcap', '.pcapng'):
+                        filename = candidate
+
+                access_point = (value.get('access_point') or value.get('ap') or
+                                value.get('bssid') or event_data.get('ap') or
+                                event_data.get('bssid') or '')
+                client_station = (value.get('client_station') or value.get('client') or
+                                  value.get('station') or event_data.get('station') or '')
+                timestamp = (value.get('timestamp') or value.get('time') or
+                             event_data.get('timestamp') or '')
             elif isinstance(value, str):
                 filename = value
                 access_point = ''
                 client_station = ''
                 timestamp = ''
             else:
-                filename = getattr(value, 'filename', None) or fallback_filename
+                filename = (getattr(value, 'filename', None) or
+                            getattr(value, 'file', None) or fallback_filename)
                 access_point = getattr(value, 'access_point', '')
                 client_station = getattr(value, 'client_station', '')
                 timestamp = getattr(value, 'timestamp', '')
@@ -1027,6 +1047,17 @@ class PwnIOS(plugins.Plugin):
 
         return None
 
+    @staticmethod
+    def _gps_sidecar_path(filename):
+        """Map a .pcap/.pcapng capture to its matching .gps.json sidecar."""
+        capture_path = os.fspath(filename)
+        stem, extension = os.path.splitext(capture_path)
+        if extension.lower() in ('.pcap', '.pcapng'):
+            return stem + '.gps.json'
+        # Do not rewrite an unrelated extension or a directory containing
+        # '.pcap' in its name.
+        return capture_path + '.gps.json'
+
     def on_handshake(self, agent, filename, access_point, client_station):
         # Save GPS coordinates if available
         if self.gps_data and self.gps_enabled:
@@ -1035,7 +1066,7 @@ class PwnIOS(plugins.Plugin):
             logging.info(f"Longitude: {self.gps_data['longitude']}")
             logging.info(f"Accuracy: {self.gps_data['accuracy']}")
 
-            gps_filename = filename.replace(".pcap", ".gps.json")
+            gps_filename = self._gps_sidecar_path(filename)
             # avoid 0.000... measurements
             if all([self.gps_data.get("latitude"), self.gps_data.get("longitude")]):
                 logging.info(f"saving GPS to {gps_filename} ({self.gps_data})")
